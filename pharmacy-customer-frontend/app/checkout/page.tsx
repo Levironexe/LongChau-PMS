@@ -139,8 +139,8 @@ export default function CheckoutPage() {
             </div>
 
             <div className="space-y-2">
-              <Button className="w-full" size="lg" onClick={handlePlaceOrder} disabled={createOrder.isLoading}>
-                {createOrder.isLoading ? "Processing..." : "Place Order"}
+              <Button className="w-full" size="lg" onClick={handlePlaceOrder} disabled={createOrder.isPending}>
+                {createOrder.isPending ? "Processing..." : "Place Order"}
               </Button>
 
               <p className="text-xs text-gray-500 text-center">

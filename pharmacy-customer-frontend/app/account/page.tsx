@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import React, { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -26,14 +26,18 @@ export default function AccountPage() {
   const { data: customer } = useQuery({
     queryKey: ["customer", customerId],
     queryFn: () => api.get(`/customers/${customerId}/`).then((res) => res.data),
-    onSuccess: (data) => {
-      setFormData({
-        name: data.name,
-        email: data.email,
-        phone: data.phone,
-      })
-    },
   })
+
+  // Update form data when customer data is loaded
+  React.useEffect(() => {
+    if (customer) {
+      setFormData({
+        name: customer.name || "",
+        email: customer.email || "",
+        phone: customer.phone || "",
+      })
+    }
+  }, [customer])
 
   const { data: orders = [] } = useQuery({
     queryKey: ["orders", customerId],
