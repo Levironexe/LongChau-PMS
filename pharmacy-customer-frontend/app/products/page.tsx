@@ -1,31 +1,34 @@
 "use client"
 
 import { useState } from "react"
-import { useQuery } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ShoppingCart, Search } from "lucide-react"
-import { api } from "@/lib/api"
+import { ShoppingCart, Search, Heart } from "lucide-react"
 import { useCart } from "@/hooks/useCart"
+import { mockProductsData } from "@/data/products"
+import Image from "next/image"
 
 export default function ProductsPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedCategory, setSelectedCategory] = useState("all")
-  const { addToCart } = useCart()
+  const { addToCart, isInCart } = useCart()
 
-  const { data: products = [] } = useQuery({
-    queryKey: ["products"],
-    queryFn: () => api.get("/products/").then((res) => res.data),
-  })
+  const products = mockProductsData
 
-  const filteredProducts = products.filter((product: any) => {
-    const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredProducts = products.filter((product) => {
+    const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                         product.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         product.manufacturer.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesCategory = selectedCategory === "all" || product.product_type === selectedCategory
     return matchesSearch && matchesCategory
   })
+
+  const formatPrice = (price: string) => {
+    return parseInt(price).toLocaleString('vi-VN') + '₫'
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -44,35 +47,92 @@ export default function ProductsPage() {
         </div>
 
         <Tabs value={selectedCategory} onValueChange={setSelectedCategory}>
-          <TabsList>
+          <TabsList className="grid w-full grid-cols-6">
             <TabsTrigger value="all">All Products</TabsTrigger>
             <TabsTrigger value="medicine">Medicines</TabsTrigger>
             <TabsTrigger value="supplement">Supplements</TabsTrigger>
+            <TabsTrigger value="device">Medical Devices</TabsTrigger>
+            <TabsTrigger value="cosmetic">Cosmetics</TabsTrigger>
+            <TabsTrigger value="mother-baby">Mother & Baby</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
 
       {/* Products Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        {filteredProducts.map((product: any) => (
-          <Card key={product.id} className="hover:shadow-lg transition-shadow">
-            <CardContent className="p-6">
-              <div className="flex justify-between items-start mb-4">
-                <h3 className="font-semibold text-lg">{product.name}</h3>
-                {product.requires_prescription && <Badge variant="destructive">Prescription Required</Badge>}
+        {filteredProducts.map((product) => (
+          <Card key={product.id} className="group hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
+            <CardContent className="p-0">
+              {/* Product Image */}
+              <div className="relative aspect-square overflow-hidden rounded-t-lg">
+                <Image
+                  src={product.image}
+                  alt={product.name}
+                  fill
+                  className="object-cover group-hover:scale-105 transition-transform duration-300"
+                  sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 25vw"
+                />
+                {product.requires_prescription && (
+                  <Badge variant="destructive" className="absolute top-2 right-2">
+                    Prescription
+                  </Badge>
+                )}
+                {product.stock < 10 && product.stock > 0 && (
+                  <Badge variant="secondary" className="absolute top-2 left-2 bg-orange-100 text-orange-800">
+                    Low Stock
+                  </Badge>
+                )}
               </div>
 
-              <p className="text-gray-600 mb-2 capitalize">{product.product_type}</p>
+              {/* Product Info */}
+              <div className="p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Badge variant="outline" className="text-xs">
+                    {product.manufacturer}
+                  </Badge>
+                  <Badge variant="secondary" className="text-xs capitalize">
+                    {product.product_type.replace('-', ' & ')}
+                  </Badge>
+                </div>
 
-              <div className="flex items-center justify-between mb-4">
-                <span className="text-2xl font-bold text-blue-600">${product.price}</span>
-                <span className="text-sm text-gray-500">Stock: {product.stock || 0}</span>
+                <h3 className="font-semibold text-gray-900 mb-2 line-clamp-2 group-hover:text-blue-600 transition-colors">
+                  {product.name}
+                </h3>
+
+                <p className="text-sm text-gray-600 mb-3 line-clamp-2">
+                  {product.description}
+                </p>
+
+                {product.strength && (
+                  <p className="text-sm text-blue-600 mb-2">
+                    Strength: {product.strength}
+                  </p>
+                )}
+
+                <div className="flex items-center justify-between mb-4">
+                  <div className="text-lg font-bold text-blue-600">
+                    {formatPrice(product.price)}
+                  </div>
+                  <div className="text-sm text-gray-500">
+                    Stock: {product.stock || 0}
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <Button 
+                    className="flex-1 bg-blue-600 hover:bg-blue-700" 
+                    onClick={() => addToCart(product)} 
+                    disabled={!product.is_available || product.stock === 0}
+                  >
+                    <ShoppingCart className="h-4 w-4 mr-1" />
+                    {product.stock === 0 ? "Out of Stock" : 
+                     isInCart(product.id) ? "Added" : "Add to Cart"}
+                  </Button>
+                  <Button size="sm" variant="outline" className="px-3">
+                    <Heart className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
-
-              <Button className="w-full" onClick={() => addToCart(product)} disabled={(product.stock || 0) === 0}>
-                <ShoppingCart className="h-4 w-4 mr-2" />
-                {(product.stock || 0) === 0 ? "Out of Stock" : "Add to Cart"}
-              </Button>
             </CardContent>
           </Card>
         ))}
