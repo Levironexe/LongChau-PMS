@@ -31,6 +31,7 @@ import {
   Pill,
   UserCog,
   Store,
+  FileText,
 } from "lucide-react"
 
 const sidebarItems = [
@@ -70,6 +71,11 @@ const sidebarItems = [
     title: "Orders",
     href: "/orders",
     icon: ShoppingCart,
+  },
+  {
+    title: "Prescriptions",
+    href: "/prescriptions",
+    icon: FileText,
   },
   {
     title: "Staff",
