@@ -2,7 +2,7 @@
 
 ## 🏥 What Each Endpoint Does
 
-**Base URL:** `http://127.0.0.1:8000/api/`
+**Base URL:** `https://longchau-pms.onrender.com/api/`
 
 ---
 
@@ -196,7 +196,7 @@
 - Replace `{id}` with actual number (like `/medicines/1/`)
 
 **Example URLs:**
-- `http://127.0.0.1:8000/api/medicines/` → All medicines
-- `http://127.0.0.1:8000/api/medicines/5/` → Medicine with ID=5
-- `http://127.0.0.1:8000/api/customers/` → All customers
-- `http://127.0.0.1:8000/api/prescription-orders/` → All prescription orders
+- `https://longchau-pms.onrender.com/api/medicines/` → All medicines
+- `https://longchau-pms.onrender.com/api/medicines/5/` → Medicine with ID=5
+- `https://longchau-pms.onrender.com/api/customers/` → All customers
+- `https://longchau-pms.onrender.com/api/prescription-orders/` → All prescription orders
