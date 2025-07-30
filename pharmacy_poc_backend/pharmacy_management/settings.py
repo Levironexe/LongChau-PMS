@@ -6,6 +6,9 @@ from pathlib import Path
 import os
 from decouple import config
 from dotenv import load_dotenv
+import dj_database_url
+
+
 load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -27,6 +30,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -57,15 +61,12 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'pharmacy_management.wsgi.application'
 
+
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'postgres',
-        'USER': 'postgres', 
-        'PASSWORD': '0798896946Bom@',
-        'HOST': 'db.kwcttylitdqirnjkmhzk.supabase.co',
-        'PORT': config('SUPABASE_DB_PORT', default=5432, cast=int),
-    }
+    'default': dj_database_url.config(
+        default=config("DATABASE_URL"),
+        conn_max_age=600
+    )
 }
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -82,6 +83,8 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 # CORS settings
 CORS_ALLOW_ALL_ORIGINS = True
