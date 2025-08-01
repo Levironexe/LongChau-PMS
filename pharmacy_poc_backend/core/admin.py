@@ -1,94 +1,128 @@
-# core/admin.py - REPLACE YOUR ENTIRE FILE WITH THIS
+# core/admin.py - UPDATED FOR UNIFIED USER SYSTEM
 
 from django.contrib import admin
+from django.utils.html import format_html
 from .models import *
 
 # ============================================================================
-# REGISTER ONLY CONCRETE MODELS (NO ABSTRACT ONES)
+# UNIFIED USER SYSTEM ADMIN
 # ============================================================================
 
-@admin.register(PharmacyBranch)
-class PharmacyBranchAdmin(admin.ModelAdmin):
-    list_display = ['name', 'address', 'phone', 'email']
-    search_fields = ['name', 'address']
+@admin.register(User)
+class UserAdmin(admin.ModelAdmin):
+    list_display = ['user_id', 'get_display_name', 'role', 'email', 'branch', 'is_active']
+    list_filter = ['role', 'is_active', 'branch', 'created_at']
+    search_fields = ['user_id', 'first_name', 'last_name', 'email', 'employee_id', 'customer_id']
+    readonly_fields = ['created_at', 'updated_at']
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('user_id', 'first_name', 'last_name', 'email', 'phone', 'role', 'branch', 'is_active')
+        }),
+        ('Staff Information', {
+            'fields': ('employee_id', 'hire_date', 'license_number', 'specialization', 
+                      'can_validate_prescriptions', 'certification_level', 'supervised_by',
+                      'register_number', 'can_approve_orders'),
+            'classes': ('collapse',),
+            'description': 'Fields for staff members only'
+        }),
+        ('Customer Information', {
+            'fields': ('customer_id', 'date_of_birth', 'address', 'registration_date',
+                      'membership_level', 'discount_rate', 'membership_start_date'),
+            'classes': ('collapse',),
+            'description': 'Fields for customers only'
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',),
+        }),
+    )
+    
+    def get_display_name(self, obj):
+        return obj.get_display_name()
+    get_display_name.short_description = 'Name'
+    
+    # Custom actions using Factory Methods
+    actions = ['create_sample_pharmacist', 'create_sample_customer']
+    
+    def create_sample_pharmacist(self, request, queryset):
+        try:
+            User.create_pharmacist(
+                first_name="Sample",
+                last_name="Pharmacist", 
+                email="sample.pharmacist@pharmacy.com",
+                phone="123-456-7890",
+                branch_id=1,
+                license_number="PH123456"
+            )
+            self.message_user(request, "Sample pharmacist created successfully using Factory Method!")
+        except Exception as e:
+            self.message_user(request, f"Error: {e}", level='ERROR')
+    
+    create_sample_pharmacist.short_description = "Create sample pharmacist (Factory Method)"
 
-@admin.register(BranchConfiguration)
-class BranchConfigurationAdmin(admin.ModelAdmin):
-    list_display = ['branch', 'max_prescriptions_per_day', 'emergency_contact']
-
-@admin.register(InventoryRecord)
-class InventoryRecordAdmin(admin.ModelAdmin):
-    list_display = ['product', 'branch', 'current_stock', 'minimum_stock', 'reorder_point']
-    list_filter = ['branch']
-    search_fields = ['product__name', 'product__product_code']
-
-@admin.register(InventoryTransaction)
-class InventoryTransactionAdmin(admin.ModelAdmin):
-    list_display = ['inventory_record', 'transaction_type', 'quantity', 'transaction_date', 'performed_by']
-    list_filter = ['transaction_type', 'transaction_date']
-
-# ============================================================================
-# CONCRETE STAFF MODELS (NO ABSTRACT Staff)
-# ============================================================================
-
-@admin.register(Pharmacist)
-class PharmacistAdmin(admin.ModelAdmin):
-    list_display = ['employee_id', 'first_name', 'last_name', 'license_number', 'branch']
-    list_filter = ['branch', 'specialization']
-    search_fields = ['employee_id', 'first_name', 'last_name', 'license_number']
-
-@admin.register(PharmacyTechnician)
-class PharmacyTechnicianAdmin(admin.ModelAdmin):
-    list_display = ['employee_id', 'first_name', 'last_name', 'certification_level', 'branch']
-    list_filter = ['branch', 'certification_level']
-
-@admin.register(BranchManager)
-class BranchManagerAdmin(admin.ModelAdmin):
-    list_display = ['employee_id', 'first_name', 'last_name', 'branch']
-    list_filter = ['branch']
-
-@admin.register(Cashier)
-class CashierAdmin(admin.ModelAdmin):
-    list_display = ['employee_id', 'first_name', 'last_name', 'register_number', 'branch']
-    list_filter = ['branch']
-
-@admin.register(InventoryManager)
-class InventoryManagerAdmin(admin.ModelAdmin):
-    list_display = ['employee_id', 'first_name', 'last_name', 'can_approve_orders', 'branch']
-    list_filter = ['branch', 'can_approve_orders']
-
-# ============================================================================
-# CUSTOMER MODELS
-# ============================================================================
-
-@admin.register(Customer)
-class CustomerAdmin(admin.ModelAdmin):
-    list_display = ['customer_id', 'first_name', 'last_name', 'email', 'phone']
-    search_fields = ['customer_id', 'first_name', 'last_name', 'email']
-
-@admin.register(VIPCustomer)
-class VIPCustomerAdmin(admin.ModelAdmin):
-    list_display = ['customer_id', 'first_name', 'last_name', 'membership_level', 'discount_rate']
-    list_filter = ['membership_level']
-
-@admin.register(CustomerProfile)
-class CustomerProfileAdmin(admin.ModelAdmin):
-    list_display = ['customer', 'preferred_branch', 'emergency_contact_name']
+@admin.register(UserProfile)
+class UserProfileAdmin(admin.ModelAdmin):
+    list_display = ['user', 'preferred_branch', 'emergency_contact_name']
     list_filter = ['preferred_branch']
+    search_fields = ['user__first_name', 'user__last_name', 'emergency_contact_name']
 
 @admin.register(LoyaltyPoint)
 class LoyaltyPointAdmin(admin.ModelAdmin):
     list_display = ['customer', 'points', 'earned_date', 'expiry_date']
     list_filter = ['earned_date', 'expiry_date']
+    search_fields = ['customer__first_name', 'customer__last_name']
 
 # ============================================================================
-# PRODUCT MODELS (CONCRETE ONLY)
+# BRANCH AND CONFIGURATION
+# ============================================================================
+
+@admin.register(PharmacyBranch)
+class PharmacyBranchAdmin(admin.ModelAdmin):
+    list_display = ['name', 'address', 'phone', 'email', 'user_count']
+    search_fields = ['name', 'address']
+    
+    def user_count(self, obj):
+        return obj.users.count()
+    user_count.short_description = 'Total Users'
+
+@admin.register(BranchConfiguration)
+class BranchConfigurationAdmin(admin.ModelAdmin):
+    list_display = ['branch', 'max_prescriptions_per_day', 'emergency_contact']
+
+# ============================================================================
+# INVENTORY MANAGEMENT
+# ============================================================================
+
+@admin.register(InventoryRecord)
+class InventoryRecordAdmin(admin.ModelAdmin):
+    list_display = ['product', 'branch', 'current_stock', 'minimum_stock', 'stock_status']
+    list_filter = ['branch']
+    search_fields = ['product__name', 'product__product_code']
+    
+    def stock_status(self, obj):
+        if obj.current_stock == 0:
+            return format_html('<span style="color: red;">Out of Stock</span>')
+        elif obj.current_stock <= obj.reorder_point:
+            return format_html('<span style="color: orange;">Low Stock</span>')
+        else:
+            return format_html('<span style="color: green;">In Stock</span>')
+    stock_status.short_description = 'Status'
+
+@admin.register(InventoryTransaction)
+class InventoryTransactionAdmin(admin.ModelAdmin):
+    list_display = ['inventory_record', 'transaction_type', 'quantity', 'transaction_date', 'performed_by']
+    list_filter = ['transaction_type', 'transaction_date']
+    readonly_fields = ['transaction_date']
+
+# ============================================================================
+# PRODUCT MANAGEMENT
 # ============================================================================
 
 @admin.register(Medicine)
 class MedicineAdmin(admin.ModelAdmin):
-    list_display = ['product_code', 'name', 'active_ingredient', 'strength', 'price']
-    list_filter = ['therapeutic_class', 'dosage_form', 'product_type']
+    list_display = ['product_code', 'name', 'active_ingredient', 'strength', 'price', 'is_available']
+    list_filter = ['therapeutic_class', 'dosage_form', 'product_type', 'is_available']
     search_fields = ['product_code', 'name', 'active_ingredient']
 
 @admin.register(PrescriptionMedicine)
@@ -117,45 +151,46 @@ class MedicineDatabaseAdmin(admin.ModelAdmin):
     search_fields = ['medicine__name']
 
 # ============================================================================
-# CONCRETE ORDER MODELS (NO ABSTRACT Order)
+# ORDER MANAGEMENT (UNIFIED ORDER SYSTEM)
 # ============================================================================
 
-@admin.register(PrescriptionOrder)
-class PrescriptionOrderAdmin(admin.ModelAdmin):
-    list_display = ['order_number', 'customer', 'branch', 'status', 'total_amount', 'order_date']
-    list_filter = ['status', 'branch', 'order_date']
+@admin.register(Order)
+class OrderAdmin(admin.ModelAdmin):
+    list_display = ['order_number', 'order_type', 'customer', 'branch', 'status', 'total_amount', 'order_date']
+    list_filter = ['order_type', 'status', 'branch', 'order_date']
     search_fields = ['order_number', 'customer__first_name', 'customer__last_name']
-
-@admin.register(InStoreOrder)
-class InStoreOrderAdmin(admin.ModelAdmin):
-    list_display = ['order_number', 'customer', 'branch', 'status', 'total_amount', 'served_by']
-    list_filter = ['status', 'branch', 'order_date']
-    search_fields = ['order_number', 'customer__first_name']
-
-@admin.register(OnlineOrder)
-class OnlineOrderAdmin(admin.ModelAdmin):
-    list_display = ['order_number', 'customer', 'branch', 'status', 'total_amount', 'order_date']
-    list_filter = ['status', 'branch', 'order_date']
-    search_fields = ['order_number', 'customer__first_name']
+    readonly_fields = ['order_date']
+    
+    # Custom actions using State Pattern
+    actions = ['transition_to_processing', 'transition_to_completed']
+    
+    def transition_to_processing(self, request, queryset):
+        for order in queryset:
+            try:
+                result = order.transition_to('processing')
+                self.message_user(request, f"Order {order.order_number}: {result}")
+            except ValueError as e:
+                self.message_user(request, f"Order {order.order_number}: {e}", level='ERROR')
+    
+    transition_to_processing.short_description = "Transition to Processing (State Pattern)"
+    
+    def transition_to_completed(self, request, queryset):
+        for order in queryset:
+            try:
+                result = order.transition_to('completed')
+                self.message_user(request, f"Order {order.order_number}: {result}")
+            except ValueError as e:
+                self.message_user(request, f"Order {order.order_number}: {e}", level='ERROR')
+    
+    transition_to_completed.short_description = "Transition to Completed (State Pattern)"
 
 @admin.register(OrderItem)
 class OrderItemAdmin(admin.ModelAdmin):
-    list_display = ['get_order_number', 'product', 'quantity', 'unit_price', 'total_price']
-    list_filter = ['prescription_order__status', 'instore_order__status', 'online_order__status']
-    search_fields = ['product__name']
-    
-    def get_order_number(self, obj):
-        if obj.prescription_order:
-            return f"PRX-{obj.prescription_order.order_number}"
-        elif obj.instore_order:
-            return f"INS-{obj.instore_order.order_number}"
-        elif obj.online_order:
-            return f"ONL-{obj.online_order.order_number}"
-        return "No Order"
-    get_order_number.short_description = 'Order Number'
+    list_display = ['order', 'product', 'quantity', 'unit_price', 'total_price']
+    search_fields = ['product__name', 'order__order_number']
 
 # ============================================================================
-# PRESCRIPTION MODELS
+# PRESCRIPTION SYSTEM
 # ============================================================================
 
 @admin.register(Prescription)
@@ -170,40 +205,44 @@ class PrescriptionItemAdmin(admin.ModelAdmin):
     search_fields = ['prescription__prescription_number', 'medicine__name']
 
 # ============================================================================
-# CONCRETE DELIVERY MODELS (NO ABSTRACT Delivery)
+# DELIVERY SYSTEM (UNIFIED DELIVERY)
 # ============================================================================
 
-@admin.register(PickUpDelivery)
-class PickUpDeliveryAdmin(admin.ModelAdmin):
-    list_display = ['get_order_number', 'status', 'scheduled_date', 'pickup_location', 'customer_notified']
-    list_filter = ['status', 'scheduled_date', 'customer_notified']
-    
-    def get_order_number(self, obj):
-        order = obj.order
-        if order:
-            return order.order_number
-        return "No Order"
-    get_order_number.short_description = 'Order Number'
-
-@admin.register(HomeDelivery)
-class HomeDeliveryAdmin(admin.ModelAdmin):
-    list_display = ['get_order_number', 'status', 'scheduled_date', 'delivery_fee', 'delivered_date']
-    list_filter = ['status', 'scheduled_date']
-    
-    def get_order_number(self, obj):
-        order = obj.order
-        if order:
-            return order.order_number
-        return "No Order"
-    get_order_number.short_description = 'Order Number'
+@admin.register(Delivery)
+class DeliveryAdmin(admin.ModelAdmin):
+    list_display = ['order', 'delivery_type', 'status', 'scheduled_date', 'delivery_fee']
+    list_filter = ['delivery_type', 'status', 'scheduled_date']
+    search_fields = ['order__order_number']
 
 # ============================================================================
-# FACTORY AND REPORT MODELS
+# FACTORY AND REPORTS
 # ============================================================================
 
 @admin.register(ProductFactory)
 class ProductFactoryAdmin(admin.ModelAdmin):
     list_display = ['factory_name', 'created_at']
+    
+    # Demonstrate Factory Pattern in admin
+    actions = ['create_sample_medicine', 'create_sample_supplement']
+    
+    def create_sample_medicine(self, request, queryset):
+        try:
+            medicine = ProductFactory.create_medicine(
+                product_code="MED001",
+                name="Sample Medicine",
+                manufacturer="Sample Pharma",
+                description="Sample medicine for testing",
+                price=25.50,
+                active_ingredient="Sample Ingredient",
+                dosage_form="Tablet",
+                strength="500mg",
+                therapeutic_class="Analgesic"
+            )
+            self.message_user(request, f"Medicine created: {medicine.name} (Factory Pattern)")
+        except Exception as e:
+            self.message_user(request, f"Error: {e}", level='ERROR')
+    
+    create_sample_medicine.short_description = "Create sample medicine (Factory Pattern)"
 
 @admin.register(ReportGenerator)
 class ReportGeneratorAdmin(admin.ModelAdmin):
