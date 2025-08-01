@@ -62,16 +62,11 @@ TEMPLATES = [
 WSGI_APPLICATION = 'pharmacy_management.wsgi.application'
 
 
-# Replace the dj_database_url section with:
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql_psycopg2',
-        'NAME': 'postgres',
-        'USER': 'postgres',
-        'PASSWORD': '0798896946Bom@',
-        'HOST': 'db.kwcttylitdqirnjkmhzk.supabase.co',
-        'PORT': 5432,
-    }
+    'default': dj_database_url.config(
+        default=config("DATABASE_URL"),
+        conn_max_age=600
+    )
 }
 
 AUTH_PASSWORD_VALIDATORS = [
