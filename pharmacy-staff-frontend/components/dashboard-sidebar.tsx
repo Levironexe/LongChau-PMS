@@ -32,6 +32,10 @@ import {
   UserCog,
   Store,
   FileText,
+  Truck,
+  Award,
+  Crown,
+  Factory
 } from "lucide-react"
 
 const sidebarItems = [
@@ -62,28 +66,60 @@ const sidebarItems = [
     href: "/stores",
     icon: Store,
   },
+  // UNIFIED USER MANAGEMENT (RBAC)
   {
-    title: "Customers",
-    href: "/customers",
+    title: "Users",
+    href: "/users",
     icon: Users,
+    badge: "NEW", // Unified users endpoint
   },
+  // Legacy pages (kept for backward compatibility)
+  {
+    title: "Customers (Legacy)",
+    href: "/customers",
+    icon: Crown,
+  },
+  {
+    title: "Staff (Legacy)",
+    href: "/staff",
+    icon: UserCog,
+  },
+  // UNIFIED ORDER SYSTEM
   {
     title: "Orders",
     href: "/orders",
     icon: ShoppingCart,
+    badge: "UPD", // Updated with order types
   },
   {
     title: "Prescriptions",
     href: "/prescriptions",
     icon: FileText,
   },
+  // NEW UNIFIED DELIVERY SYSTEM
   {
-    title: "Staff",
-    href: "/staff",
-    icon: UserCog,
+    title: "Deliveries",
+    href: "/deliveries",
+    icon: Truck,
+    badge: "NEW",
   },
+  // NEW LOYALTY POINTS SYSTEM
   {
-    title: "Analytics",
+    title: "Loyalty Points",
+    href: "/loyalty",
+    icon: Award,
+    badge: "NEW",
+  },
+  // NEW REPORTS SYSTEM
+  {
+    title: "Reports",
+    href: "/reports",
+    icon: BarChart3,
+    badge: "NEW",
+  },
+  // Legacy analytics
+  {
+    title: "Analytics (Legacy)",
     href: "/analytics",
     icon: BarChart3,
   },

@@ -64,10 +64,12 @@ interface Order {
   customer_email: string
   order_date: string
   status: "pending" | "processing" | "completed" | "cancelled"
+  order_type: "prescription" | "in_store" | "online"
   total_amount: number
   items: OrderItem[]
   notes?: string
   payment_method: "cash" | "card" | "insurance"
+  available_transitions?: string[]
 }
 
 interface Customer {
@@ -94,9 +96,11 @@ export default function OrdersPage() {
   const [viewingOrder, setViewingOrder] = useState<Order | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
+  const [typeFilter, setTypeFilter] = useState<string>("all")
   const [cartItems, setCartItems] = useState<any[]>([])
   const [formData, setFormData] = useState({
     customer_id: "",
+    order_type: "in_store" as "prescription" | "in_store" | "online",
     payment_method: "cash" as "cash" | "card" | "insurance",
     notes: ""
   })
@@ -311,6 +315,7 @@ export default function OrdersPage() {
   const resetForm = () => {
     setFormData({
       customer_id: "",
+      order_type: "in_store",
       payment_method: "cash",
       notes: ""
     })
@@ -374,6 +379,7 @@ export default function OrdersPage() {
     setEditingOrder(order)
     setFormData({
       customer_id: order.customer_id.toString(),
+      order_type: order.order_type,
       payment_method: order.payment_method,
       notes: order.notes || ""
     })
