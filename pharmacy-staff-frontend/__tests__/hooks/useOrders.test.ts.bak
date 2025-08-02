@@ -1,0 +1,756 @@
+import { renderHook, waitFor } from '@testing-library/react'
+import { QueryClient } from '@tanstack/react-query'
+import { server } from '../mocks/server'
+import { http, HttpResponse } from 'msw'
+import { createTestQueryClient, waitForLoadingToFinish } from '../utils/test-utils'
+import { queryKeys } from '@/lib/queryKeys'
+import type { Order } from '@/lib/types'
+import {
+  useOrders,
+  useOrder,
+  useOrdersByType,
+  useOrdersByStatus,
+  useAvailableTransitions,
+  useOrderTotal,
+  useCreateOrder,
+  useUpdateOrder,
+  useTransitionOrder,
+  useProcessOrder,
+  useDeleteOrder,
+  useOrderStats,
+} from '@/hooks/api/useOrders'
+import { createWrapper } from '../utils'
+
+// Mock data
+const mockOrder: Order = {
+  id: 1,
+  customer: 1,
+  customer_name: 'John Doe',
+  total_amount: '35.50',
+  status: 'pending',
+  order_type: 'in_store',
+  order_date: '2024-01-01T00:00:00Z',
+  items: [],
+  available_transitions: ['processing', 'cancelled'],
+}
+
+const mockOrders: Order[] = [
+  mockOrder,
+  {
+    id: 2,
+    customer: 2,
+    customer_name: 'Jane Smith',
+    total_amount: '75.25',
+    status: 'completed',
+    order_type: 'online',
+    order_date: '2024-01-02T00:00:00Z',
+    items: [],
+    available_transitions: [],
+  },
+  {
+    id: 3,
+    customer: 3,
+    customer_name: 'Bob Johnson',
+    total_amount: '120.00',
+    status: 'processing',
+    order_type: 'prescription',
+    order_date: '2024-01-03T00:00:00Z',
+    items: [],
+    available_transitions: ['completed', 'cancelled'],
+  },
+]
+
+const API_BASE = 'https://longchau-pms.onrender.com/api'
+
+describe('useOrders Hooks', () => {
+  let queryClient: QueryClient
+
+  beforeEach(() => {
+    queryClient = createTestQueryClient()
+  })
+
+  afterEach(() => {
+    queryClient.clear()
+  })
+
+  describe('Query Hooks', () => {
+    describe('useOrders', () => {
+      it('should fetch orders successfully', async () => {
+        server.use(
+          http.get(`${API_BASE}/orders/`, () => {
+            return HttpResponse.json(mockOrders)
+          })
+        )
+
+        const { result } = renderHook(() => useOrders(), {
+          wrapper: createWrapper(queryClient),
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(mockOrders)
+        expect(result.current.isLoading).toBe(false)
+        expect(result.current.error).toBe(null)
+      })
+
+      it('should fetch orders with filters', async () => {
+        const filters = { status: 'pending', order_type: 'in_store' }
+        
+        server.use(
+          http.get(`${API_BASE}/orders/`, ({ request }) => {
+            const url = new URL(request.url)
+            expect(url.searchParams.get('status')).toBe('pending')
+            expect(url.searchParams.get('order_type')).toBe('in_store')
+            return HttpResponse.json([mockOrder])
+          })
+        )
+
+        const { result } = renderHook(() => useOrders(filters), {
+          wrapper: createWrapper(queryClient),
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockOrder])
+      })
+
+      it('should handle errors', async () => {
+        server.use(
+          http.get(`${API_BASE}/orders/`, () => {
+            return new HttpResponse(null, { status: 500 })
+          })
+        )
+
+        const { result } = renderHook(() => useOrders(), {
+          wrapper: createWrapper(queryClient),
+        })
+
+        await waitFor(() => {
+          expect(result.current.isError).toBe(true)
+        })
+
+        expect(result.current.error).toBeTruthy()
+        expect(result.current.data).toBeUndefined()
+      })
+
+      it('should use correct query key', () => {
+        const filters = { status: 'pending' }
+        const { result } = renderHook(() => useOrders(filters), {
+          wrapper: createWrapper(queryClient),
+        })
+
+        const expectedKey = queryKeys.orders.list(filters)
+        const queryData = queryClient.getQueryData(expectedKey)
+        // Query should be registered with the correct key
+        expect(queryClient.getQueryCache().findAll({ queryKey: expectedKey })).toHaveLength(1)
+      })
+
+      it('should keep previous data during refetch', async () => {
+        server.use(
+          http.get(`${API_BASE}/orders/`, () => {
+            return HttpResponse.json(mockOrders)
+          })
+        )
+
+        const { result, rerender } = renderHook(() => useOrders(), {
+          wrapper: createWrapper(queryClient),
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        const firstData = result.current.data
+
+        // Simulate a refetch with new data
+        server.use(
+          http.get(`${API_BASE}/orders/`, () => {
+            return HttpResponse.json([...mockOrders, { ...mockOrder, id: 4 }])
+          })
+        )
+
+        queryClient.invalidateQueries({ queryKey: queryKeys.orders.lists() })
+        rerender()
+
+        // During loading, should still have previous data due to placeholderData: keepPreviousData
+        expect(result.current.data).toEqual(firstData)
+
+        await waitFor(() => {
+          expect(result.current.data?.length).toBe(4)
+        })
+      })
+    })
+
+    describe('useOrder', () => {
+      it('should fetch single order successfully', async () => {
+        const orderId = 1
+        server.use(
+          http.get(`${API_BASE}/orders/${orderId}/`, () => {
+            return HttpResponse.json(mockOrder)
+          })
+        )
+
+        const { result } = renderHook(() => useOrder(orderId), {
+          wrapper: createWrapper(queryClient),
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(mockOrder)
+      })
+
+      it('should not run query when id is invalid', () => {
+        const { result } = renderHook(() => useOrder(0), {
+          wrapper: createWrapper(queryClient),
+        })
+
+        expect(result.current.data).toBeUndefined()
+        expect(result.current.isPending).toBe(false)
+        expect(result.current.fetchStatus).toBe('idle')
+      })
+
+      it('should handle 404 errors', async () => {
+        const orderId = 999
+        server.use(
+          http.get(`${API_BASE}/orders/${orderId}/`, () => {
+            return new HttpResponse(null, { status: 404 })
+          })
+        )
+
+        const { result } = renderHook(() => useOrder(orderId), {
+          wrapper: createWrapper(queryClient),
+        })
+
+        await waitFor(() => {
+          expect(result.current.isError).toBe(true)
+        })
+
+        expect(result.current.error).toBeTruthy()
+      })
+    })
+
+    describe('useOrdersByType', () => {
+      it('should fetch orders by type', async () => {
+        const orderType = 'prescription'
+        server.use(
+          http.get(`${API_BASE}/orders/by_type/${orderType}/`, () => {
+            return HttpResponse.json([mockOrders[2]])
+          })
+        )
+
+        const { result } = renderHook(() => useOrdersByType(orderType), {
+          wrapper: createWrapper(queryClient),
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockOrders[2]])
+      })
+    })
+
+    describe('useOrdersByStatus', () => {
+      it('should fetch orders by status', async () => {
+        const status = 'pending'
+        server.use(
+          http.get(`${API_BASE}/orders/by_status/${status}/`, () => {
+            return HttpResponse.json([mockOrder])
+          })
+        )
+
+        const { result } = renderHook(() => useOrdersByStatus(status), {
+          wrapper: createWrapper(queryClient),
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockOrder])
+      })
+    })
+
+    describe('useAvailableTransitions', () => {
+      it('should fetch available transitions', async () => {
+        const orderId = 1
+        const transitions = ['processing', 'cancelled']
+        
+        server.use(
+          http.get(`${API_BASE}/orders/${orderId}/available_transitions/`, () => {
+            return HttpResponse.json({ available_transitions: transitions })
+          })
+        )
+
+        const { result } = renderHook(() => useAvailableTransitions(orderId), {
+          wrapper: createWrapper(queryClient),
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual({ available_transitions: transitions })
+      })
+    })
+
+    describe('useOrderTotal', () => {
+      it('should fetch order total', async () => {
+        const orderId = 1
+        const total = { total: '35.50', tax: '3.50', subtotal: '32.00' }
+        
+        server.use(
+          http.get(`${API_BASE}/orders/${orderId}/calculate_total/`, () => {
+            return HttpResponse.json(total)
+          })
+        )
+
+        const { result } = renderHook(() => useOrderTotal(orderId), {
+          wrapper: createWrapper(queryClient),
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(total)
+      })
+    })
+  })
+
+  describe('Mutation Hooks', () => {
+    describe('useCreateOrder', () => {
+      it('should create order successfully', async () => {
+        const newOrderData = {
+          customer: 1,
+          order_type: 'in_store' as const,
+          items: [],
+        }
+
+        const createdOrder = {
+          ...mockOrder,
+          id: 999,
+          ...newOrderData,
+        }
+
+        server.use(
+          http.post(`${API_BASE}/orders/`, async ({ request }) => {
+            const body = await request.json()
+            expect(body).toMatchObject(newOrderData)
+            return HttpResponse.json(createdOrder, { status: 201 })
+          })
+        )
+
+        const { result } = renderHook(() => useCreateOrder(), {
+          wrapper: createWrapper(queryClient),
+        })
+
+        result.current.mutate(newOrderData)
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(createdOrder)
+      })
+
+      it('should handle optimistic updates', async () => {
+        // First, populate the cache with existing orders
+        queryClient.setQueryData(queryKeys.orders.lists(), mockOrders)
+
+        const newOrderData = {
+          customer: 4,
+          order_type: 'online' as const,
+          items: [],
+        }
+
+        // Delay the server response to test optimistic update
+        server.use(
+          http.post(`${API_BASE}/orders/`, async () => {
+            await new Promise(resolve => setTimeout(resolve, 100))
+            return HttpResponse.json({ ...mockOrder, id: 999, ...newOrderData }, { status: 201 })
+          })
+        )
+
+        const { result } = renderHook(() => useCreateOrder(), {
+          wrapper: createWrapper(queryClient),
+        })
+
+        result.current.mutate(newOrderData)
+
+        // Should have optimistic update immediately
+        const cacheData = queryClient.getQueryData(queryKeys.orders.lists()) as Order[]
+        expect(cacheData.length).toBe(mockOrders.length + 1)
+        expect(cacheData[0].customer).toBe(newOrderData.customer)
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+      })
+
+      it('should rollback on error', async () => {
+        // First, populate the cache with existing orders
+        queryClient.setQueryData(queryKeys.orders.lists(), mockOrders)
+
+        const newOrderData = {
+          customer: 4,
+          order_type: 'online' as const,
+          items: [],
+        }
+
+        server.use(
+          http.post(`${API_BASE}/orders/`, () => {
+            return new HttpResponse(null, { status: 500 })
+          })
+        )
+
+        const { result } = renderHook(() => useCreateOrder(), {
+          wrapper: createWrapper(queryClient),
+        })
+
+        result.current.mutate(newOrderData)
+
+        await waitFor(() => {
+          expect(result.current.isError).toBe(true)
+        })
+
+        // Should rollback to original data
+        const cacheData = queryClient.getQueryData(queryKeys.orders.lists())
+        expect(cacheData).toEqual(mockOrders)
+      })
+    })
+
+    describe('useUpdateOrder', () => {
+      it('should update order successfully', async () => {
+        const orderId = 1
+        const updateData = { total_amount: '50.00' }
+        const updatedOrder = { ...mockOrder, ...updateData }
+
+        server.use(
+          http.patch(`${API_BASE}/orders/${orderId}/`, async ({ request }) => {
+            const body = await request.json()
+            expect(body).toMatchObject(updateData)
+            return HttpResponse.json(updatedOrder)
+          })
+        )
+
+        const { result } = renderHook(() => useUpdateOrder(), {
+          wrapper: createWrapper(queryClient),
+        })
+
+        result.current.mutate({ id: orderId, ...updateData })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(updatedOrder)
+      })
+
+      it('should update cache on success', async () => {
+        const orderId = 1
+        const updateData = { total_amount: '50.00' }
+        const updatedOrder = { ...mockOrder, ...updateData }
+
+        // Pre-populate cache
+        queryClient.setQueryData(queryKeys.orders.detail(orderId), mockOrder)
+        queryClient.setQueryData(queryKeys.orders.lists(), mockOrders)
+
+        server.use(
+          http.patch(`${API_BASE}/orders/${orderId}/`, () => {
+            return HttpResponse.json(updatedOrder)
+          })
+        )
+
+        const { result } = renderHook(() => useUpdateOrder(), {
+          wrapper: createWrapper(queryClient),
+        })
+
+        result.current.mutate({ id: orderId, ...updateData })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        // Check that cache was updated
+        const detailCache = queryClient.getQueryData(queryKeys.orders.detail(orderId))
+        expect(detailCache).toEqual(updatedOrder)
+
+        const listCache = queryClient.getQueryData(queryKeys.orders.lists()) as Order[]
+        const updatedInList = listCache.find(o => o.id === orderId)
+        expect(updatedInList).toEqual(updatedOrder)
+      })
+    })
+
+    describe('useTransitionOrder', () => {
+      it('should transition order status', async () => {
+        const orderId = 1
+        const newStatus = 'processing' as const
+        const transitionedOrder = { ...mockOrder, status: newStatus }
+
+        server.use(
+          http.post(`${API_BASE}/orders/${orderId}/transition/`, async ({ request }) => {
+            const body = await request.json()
+            expect(body).toMatchObject({ status: newStatus })
+            return HttpResponse.json(transitionedOrder)
+          })
+        )
+
+        const { result } = renderHook(() => useTransitionOrder(), {
+          wrapper: createWrapper(queryClient),
+        })
+
+        result.current.mutate({ id: orderId, status: newStatus })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(transitionedOrder)
+      })
+
+      it('should handle optimistic status update', async () => {
+        const orderId = 1
+        const newStatus = 'processing' as const
+
+        // Pre-populate cache
+        queryClient.setQueryData(queryKeys.orders.detail(orderId), mockOrder)
+
+        server.use(
+          http.post(`${API_BASE}/orders/${orderId}/transition/`, async () => {
+            await new Promise(resolve => setTimeout(resolve, 100))
+            return HttpResponse.json({ ...mockOrder, status: newStatus })
+          })
+        )
+
+        const { result } = renderHook(() => useTransitionOrder(), {
+          wrapper: createWrapper(queryClient),
+        })
+
+        result.current.mutate({ id: orderId, status: newStatus })
+
+        // Should have optimistic update immediately
+        const cacheData = queryClient.getQueryData(queryKeys.orders.detail(orderId)) as Order
+        expect(cacheData.status).toBe(newStatus)
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+      })
+    })
+
+    describe('useProcessOrder', () => {
+      it('should process order with action', async () => {
+        const orderId = 1
+        const action = 'fulfill'
+        const processedOrder = { ...mockOrder, status: 'completed' as const }
+
+        server.use(
+          http.post(`${API_BASE}/orders/${orderId}/process/`, async ({ request }) => {
+            const body = await request.json()
+            expect(body).toMatchObject({ action })
+            return HttpResponse.json(processedOrder)
+          })
+        )
+
+        const { result } = renderHook(() => useProcessOrder(), {
+          wrapper: createWrapper(queryClient),
+        })
+
+        result.current.mutate({ id: orderId, action })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(processedOrder)
+      })
+    })
+
+    describe('useDeleteOrder', () => {
+      it('should delete order successfully', async () => {
+        const orderId = 1
+
+        server.use(
+          http.delete(`${API_BASE}/orders/${orderId}/`, () => {
+            return new HttpResponse(null, { status: 204 })
+          })
+        )
+
+        const { result } = renderHook(() => useDeleteOrder(), {
+          wrapper: createWrapper(queryClient),
+        })
+
+        result.current.mutate(orderId)
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+      })
+
+      it('should handle optimistic deletion', async () => {
+        const orderId = 1
+
+        // Pre-populate cache
+        queryClient.setQueryData(queryKeys.orders.lists(), mockOrders)
+
+        server.use(
+          http.delete(`${API_BASE}/orders/${orderId}/`, async () => {
+            await new Promise(resolve => setTimeout(resolve, 100))
+            return new HttpResponse(null, { status: 204 })
+          })
+        )
+
+        const { result } = renderHook(() => useDeleteOrder(), {
+          wrapper: createWrapper(queryClient),
+        })
+
+        result.current.mutate(orderId)
+
+        // Should have optimistic deletion immediately
+        const cacheData = queryClient.getQueryData(queryKeys.orders.lists()) as Order[]
+        expect(cacheData.find(o => o.id === orderId)).toBeUndefined()
+        expect(cacheData.length).toBe(mockOrders.length - 1)
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+      })
+    })
+  })
+
+  describe('Custom Hooks', () => {
+    describe('useOrderStats', () => {
+      it('should calculate order statistics', async () => {
+        server.use(
+          http.get(`${API_BASE}/orders/`, () => {
+            return HttpResponse.json(mockOrders)
+          })
+        )
+
+        const { result } = renderHook(() => useOrderStats(), {
+          wrapper: createWrapper(queryClient),
+        })
+
+        await waitFor(() => {
+          expect(result.current.isLoading).toBe(false)
+        })
+
+        expect(result.current.totalOrders).toBe(3)
+        expect(result.current.pendingOrders).toBe(1)
+        expect(result.current.processingOrders).toBe(1)
+        expect(result.current.completedOrders).toBe(1)
+        expect(result.current.cancelledOrders).toBe(0)
+        expect(result.current.totalRevenue).toBe(75.25) // Only completed orders
+        expect(result.current.prescriptionOrders).toBe(1)
+        expect(result.current.inStoreOrders).toBe(1)
+        expect(result.current.onlineOrders).toBe(1)
+      })
+
+      it('should return default values when no data', () => {
+        const { result } = renderHook(() => useOrderStats(), {
+          wrapper: createWrapper(queryClient),
+        })
+
+        expect(result.current.totalOrders).toBe(0)
+        expect(result.current.pendingOrders).toBe(0)
+        expect(result.current.processingOrders).toBe(0)
+        expect(result.current.completedOrders).toBe(0)
+        expect(result.current.cancelledOrders).toBe(0)
+        expect(result.current.totalRevenue).toBe(0)
+        expect(result.current.prescriptionOrders).toBe(0)
+        expect(result.current.inStoreOrders).toBe(0)
+        expect(result.current.onlineOrders).toBe(0)
+      })
+    })
+  })
+
+  describe('Error Handling', () => {
+    it('should retry failed requests', async () => {
+      let callCount = 0
+      server.use(
+        http.get(`${API_BASE}/orders/`, () => {
+          callCount++
+          if (callCount < 3) {
+            return new HttpResponse(null, { status: 500 })
+          }
+          return HttpResponse.json(mockOrders)
+        })
+      )
+
+      const { result } = renderHook(() => useOrders(), {
+        wrapper: createWrapper(queryClient)
+          <AllTheProviders queryClient={queryClient}>{children}</AllTheProviders>
+        ),
+      })
+
+      await waitFor(() => {
+        expect(result.current.isSuccess).toBe(true)
+      }, { timeout: 10000 })
+
+      expect(callCount).toBe(3)
+      expect(result.current.data).toEqual(mockOrders)
+    })
+
+    it('should handle network errors', async () => {
+      server.use(
+        http.get(`${API_BASE}/orders/`, () => {
+          return HttpResponse.error()
+        })
+      )
+
+      const { result } = renderHook(() => useOrders(), {
+        wrapper: createWrapper(queryClient)
+          <AllTheProviders queryClient={queryClient}>{children}</AllTheProviders>
+        ),
+      })
+
+      await waitFor(() => {
+        expect(result.current.isError).toBe(true)
+      })
+
+      expect(result.current.error).toBeTruthy()
+    })
+  })
+
+  describe('Cache Invalidation', () => {
+    it('should invalidate correct queries after mutations', async () => {
+      const orderId = 1
+      const newOrderData = {
+        customer: 1,
+        order_type: 'in_store' as const,
+        items: [],
+      }
+
+      server.use(
+        http.post(`${API_BASE}/orders/`, () => {
+          return HttpResponse.json({ ...mockOrder, id: 999, ...newOrderData }, { status: 201 })
+        })
+      )
+
+      // Mock invalidateQueries to track calls
+      const invalidateQueriesSpy = jest.spyOn(queryClient, 'invalidateQueries')
+
+      const { result } = renderHook(() => useCreateOrder(), {
+        wrapper: createWrapper(queryClient)
+          <AllTheProviders queryClient={queryClient}>{children}</AllTheProviders>
+        ),
+      })
+
+      result.current.mutate(newOrderData)
+
+      await waitFor(() => {
+        expect(result.current.isSuccess).toBe(true)
+      })
+
+      // Should invalidate order-related queries
+      expect(invalidateQueriesSpy).toHaveBeenCalled()
+    })
+  })
+})

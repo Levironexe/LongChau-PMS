@@ -1,0 +1,954 @@
+import { renderHook, waitFor } from '@testing-library/react'
+import { QueryClient } from '@tanstack/react-query'
+import { server } from '../mocks/server'
+import { http, HttpResponse } from 'msw'
+import { createTestQueryClient } from '../utils/test-utils'
+import { queryKeys } from '@/lib/queryKeys'
+import type { User } from '@/lib/types'
+import {
+  useUsers,
+  useUser,
+  useCustomers,
+  usePharmacists,
+  useStaff,
+  useCustomersOnly,
+  useStaffOnly,
+  useCreateUser,
+  useCreatePharmacist,
+  useCreateVipCustomer,
+  useCreateStaff,
+  useUpdateUser,
+  useUpgradeToVip,
+  useDeleteUser,
+  useUserStats,
+  useCustomerStats,
+  useStaffStats,
+} from '@/hooks/api/useUsers'
+import { createWrapper } from '../utils'
+
+// Mock data
+const mockCustomer: User = {
+  id: 1,
+  first_name: 'John',
+  last_name: 'Doe',
+  email: 'john.doe@example.com',
+  phone: '+1234567890',
+  role: 'customer',
+  is_active: true,
+  created_at: '2024-01-01T00:00:00Z',
+  registration_date: '2024-01-01T00:00:00Z',
+  status: 'active',
+  total_orders: 5,
+  total_spent: 150.75,
+  loyalty_points: 25,
+}
+
+const mockVipCustomer: User = {
+  id: 2,
+  first_name: 'Jane',
+  last_name: 'Smith',
+  email: 'jane.smith@example.com',
+  phone: '+0987654321',
+  role: 'vip_customer',
+  is_active: true,
+  created_at: '2024-01-02T00:00:00Z',
+  registration_date: '2024-01-02T00:00:00Z',
+  status: 'active',
+  total_orders: 20,
+  total_spent: 500.00,
+  loyalty_points: 100,
+}
+
+const mockPharmacist: User = {
+  id: 3,
+  first_name: 'Dr. Bob',
+  last_name: 'Johnson',
+  email: 'bob.johnson@pharmacy.com',
+  phone: '+1122334455',
+  role: 'pharmacist',
+  is_active: true,
+  created_at: '2024-01-03T00:00:00Z',
+  registration_date: '2024-01-03T00:00:00Z',
+  status: 'active',
+  total_orders: 0,
+  total_spent: 0,
+  loyalty_points: 0,
+}
+
+const mockStaff: User = {
+  id: 4,
+  first_name: 'Alice',
+  last_name: 'Wilson',
+  email: 'alice.wilson@pharmacy.com',
+  phone: '+5566778899',
+  role: 'technician',
+  is_active: true,
+  created_at: '2024-01-04T00:00:00Z',
+  registration_date: '2024-01-04T00:00:00Z',
+  status: 'active',
+  total_orders: 0,
+  total_spent: 0,
+  loyalty_points: 0,
+}
+
+const mockUsers: User[] = [mockCustomer, mockVipCustomer, mockPharmacist, mockStaff]
+
+const API_BASE = 'https://longchau-pms.onrender.com/api'
+
+describe('useUsers Hooks', () => {
+  let queryClient: QueryClient
+
+  beforeEach(() => {
+    queryClient = createTestQueryClient()
+  })
+
+  afterEach(() => {
+    queryClient.clear()
+  })
+
+  describe('Query Hooks', () => {
+    describe('useUsers', () => {
+      it('should fetch all users successfully', async () => {
+        server.use(
+          http.get(`${API_BASE}/users/`, () => {
+            return HttpResponse.json(mockUsers)
+          })
+        )
+
+        const { result } = renderHook(() => useUsers(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(mockUsers)
+        expect(result.current.isLoading).toBe(false)
+        expect(result.current.error).toBe(null)
+      })
+
+      it('should fetch users with filters', async () => {
+        const filters = { role: 'customer', status: 'active' }
+        
+        server.use(
+          http.get(`${API_BASE}/users/`, ({ request }) => {
+            const url = new URL(request.url)
+            expect(url.searchParams.get('role')).toBe('customer')
+            expect(url.searchParams.get('status')).toBe('active')
+            return HttpResponse.json([mockCustomer])
+          })
+        )
+
+        const { result } = renderHook(() => useUsers(filters), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockCustomer])
+      })
+
+      it('should handle search filters', async () => {
+        const filters = { search: 'john' }
+        
+        server.use(
+          http.get(`${API_BASE}/users/`, ({ request }) => {
+            const url = new URL(request.url)
+            expect(url.searchParams.get('search')).toBe('john')
+            return HttpResponse.json([mockCustomer])
+          })
+        )
+
+        const { result } = renderHook(() => useUsers(filters), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockCustomer])
+      })
+
+      it('should use correct query key', () => {
+        const filters = { role: 'customer' }
+        const { result } = renderHook(() => useUsers(filters), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        const expectedKey = queryKeys.users.list(filters)
+        expect(queryClient.getQueryCache().findAll({ queryKey: expectedKey })).toHaveLength(1)
+      })
+
+      it('should keep previous data during refetch', async () => {
+        server.use(
+          http.get(`${API_BASE}/users/`, () => {
+            return HttpResponse.json(mockUsers)
+          })
+        )
+
+        const { result, rerender } = renderHook(() => useUsers(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        const firstData = result.current.data
+
+        // Simulate a refetch with new data
+        server.use(
+          http.get(`${API_BASE}/users/`, () => {
+            return HttpResponse.json([...mockUsers, { ...mockCustomer, id: 5 }])
+          })
+        )
+
+        queryClient.invalidateQueries({ queryKey: queryKeys.users.lists() })
+        rerender()
+
+        // During loading, should still have previous data
+        expect(result.current.data).toEqual(firstData)
+
+        await waitFor(() => {
+          expect(result.current.data?.length).toBe(5)
+        })
+      })
+    })
+
+    describe('useUser', () => {
+      it('should fetch single user successfully', async () => {
+        const userId = 1
+        server.use(
+          http.get(`${API_BASE}/users/${userId}/`, () => {
+            return HttpResponse.json(mockCustomer)
+          })
+        )
+
+        const { result } = renderHook(() => useUser(userId), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(mockCustomer)
+      })
+
+      it('should not run query when id is invalid', () => {
+        const { result } = renderHook(() => useUser(0), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        expect(result.current.data).toBeUndefined()
+        expect(result.current.isPending).toBe(false)
+        expect(result.current.fetchStatus).toBe('idle')
+      })
+    })
+
+    describe('useCustomers', () => {
+      it('should fetch customers', async () => {
+        server.use(
+          http.get(`${API_BASE}/users/customers/`, () => {
+            return HttpResponse.json([mockCustomer, mockVipCustomer])
+          })
+        )
+
+        const { result } = renderHook(() => useCustomers(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockCustomer, mockVipCustomer])
+      })
+    })
+
+    describe('usePharmacists', () => {
+      it('should fetch pharmacists', async () => {
+        server.use(
+          http.get(`${API_BASE}/users/pharmacists/`, () => {
+            return HttpResponse.json([mockPharmacist])
+          })
+        )
+
+        const { result } = renderHook(() => usePharmacists(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockPharmacist])
+      })
+    })
+
+    describe('useStaff', () => {
+      it('should fetch staff', async () => {
+        server.use(
+          http.get(`${API_BASE}/users/staff/`, () => {
+            return HttpResponse.json([mockPharmacist, mockStaff])
+          })
+        )
+
+        const { result } = renderHook(() => useStaff(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockPharmacist, mockStaff])
+      })
+    })
+
+    describe('useCustomersOnly', () => {
+      it('should fetch and filter customers only', async () => {
+        server.use(
+          http.get(`${API_BASE}/users/customers/`, () => {
+            return HttpResponse.json([mockCustomer, mockVipCustomer])
+          })
+        )
+
+        const { result } = renderHook(() => useCustomersOnly(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockCustomer, mockVipCustomer])
+      })
+
+      it('should apply search filter', async () => {
+        const filters = { search: 'john' }
+        
+        server.use(
+          http.get(`${API_BASE}/users/customers/`, () => {
+            return HttpResponse.json([mockCustomer, mockVipCustomer])
+          })
+        )
+
+        const { result } = renderHook(() => useCustomersOnly(filters), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        // Should filter by search term on client side
+        expect(result.current.data).toEqual([mockCustomer])
+      })
+
+      it('should apply role filter within customers', async () => {
+        const filters = { role: 'vip_customer' }
+        
+        server.use(
+          http.get(`${API_BASE}/users/customers/`, () => {
+            return HttpResponse.json([mockCustomer, mockVipCustomer])
+          })
+        )
+
+        const { result } = renderHook(() => useCustomersOnly(filters), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockVipCustomer])
+      })
+    })
+
+    describe('useStaffOnly', () => {
+      it('should fetch and filter staff only', async () => {
+        server.use(
+          http.get(`${API_BASE}/users/`, () => {
+            return HttpResponse.json(mockUsers)
+          })
+        )
+
+        const { result } = renderHook(() => useStaffOnly(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        // Should exclude customers and vip_customers
+        expect(result.current.data).toEqual([mockPharmacist, mockStaff])
+      })
+    })
+  })
+
+  describe('Mutation Hooks', () => {
+    describe('useCreateUser', () => {
+      it('should create user successfully', async () => {
+        const newUserData = {
+          first_name: 'New',
+          last_name: 'User',
+          email: 'new.user@example.com',
+          phone: '+1111111111',
+          role: 'customer' as const,
+        }
+
+        const createdUser = {
+          ...mockCustomer,
+          id: 999,
+          ...newUserData,
+        }
+
+        server.use(
+          http.post(`${API_BASE}/users/`, async ({ request }) => {
+            const body = await request.json()
+            expect(body).toMatchObject(newUserData)
+            return HttpResponse.json(createdUser, { status: 201 })
+          })
+        )
+
+        const { result } = renderHook(() => useCreateUser(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        result.current.mutate(newUserData)
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(createdUser)
+      })
+
+      it('should handle optimistic updates', async () => {
+        // Pre-populate cache
+        queryClient.setQueryData(queryKeys.users.lists(), mockUsers)
+
+        const newUserData = {
+          first_name: 'New',
+          last_name: 'User',
+          email: 'new.user@example.com',
+          phone: '+1111111111',
+          role: 'customer' as const,
+        }
+
+        server.use(
+          http.post(`${API_BASE}/users/`, async () => {
+            await new Promise(resolve => setTimeout(resolve, 100))
+            return HttpResponse.json({ ...mockCustomer, id: 999, ...newUserData }, { status: 201 })
+          })
+        )
+
+        const { result } = renderHook(() => useCreateUser(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        result.current.mutate(newUserData)
+
+        // Should have optimistic update immediately
+        const cacheData = queryClient.getQueryData(queryKeys.users.lists()) as User[]
+        expect(cacheData.length).toBe(mockUsers.length + 1)
+        expect(cacheData[cacheData.length - 1].first_name).toBe(newUserData.first_name)
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+      })
+
+      it('should rollback on error', async () => {
+        // Pre-populate cache
+        queryClient.setQueryData(queryKeys.users.lists(), mockUsers)
+
+        const newUserData = {
+          first_name: 'New',
+          last_name: 'User',
+          email: 'new.user@example.com',
+          phone: '+1111111111',
+          role: 'customer' as const,
+        }
+
+        server.use(
+          http.post(`${API_BASE}/users/`, () => {
+            return new HttpResponse(null, { status: 500 })
+          })
+        )
+
+        const { result } = renderHook(() => useCreateUser(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        result.current.mutate(newUserData)
+
+        await waitFor(() => {
+          expect(result.current.isError).toBe(true)
+        })
+
+        // Should rollback to original data
+        const cacheData = queryClient.getQueryData(queryKeys.users.lists())
+        expect(cacheData).toEqual(mockUsers)
+      })
+    })
+
+    describe('useCreatePharmacist', () => {
+      it('should create pharmacist using factory method', async () => {
+        const pharmacistData = {
+          first_name: 'Dr. New',
+          last_name: 'Pharmacist',
+          email: 'new.pharmacist@pharmacy.com',
+          phone: '+2222222222',
+        }
+
+        const createdPharmacist = {
+          ...mockPharmacist,
+          id: 999,
+          ...pharmacistData,
+        }
+
+        server.use(
+          http.post(`${API_BASE}/users/pharmacists/`, async ({ request }) => {
+            const body = await request.json()
+            expect(body).toMatchObject(pharmacistData)
+            return HttpResponse.json(createdPharmacist, { status: 201 })
+          })
+        )
+
+        const { result } = renderHook(() => useCreatePharmacist(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        result.current.mutate(pharmacistData)
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(createdPharmacist)
+      })
+    })
+
+    describe('useCreateVipCustomer', () => {
+      it('should create VIP customer using factory method', async () => {
+        const vipData = {
+          first_name: 'VIP',
+          last_name: 'Customer',
+          email: 'vip.customer@example.com',
+          phone: '+3333333333',
+        }
+
+        const createdVip = {
+          ...mockVipCustomer,
+          id: 999,
+          ...vipData,
+        }
+
+        server.use(
+          http.post(`${API_BASE}/users/vip_customers/`, async ({ request }) => {
+            const body = await request.json()
+            expect(body).toMatchObject(vipData)
+            return HttpResponse.json(createdVip, { status: 201 })
+          })
+        )
+
+        const { result } = renderHook(() => useCreateVipCustomer(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        result.current.mutate(vipData)
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(createdVip)
+      })
+    })
+
+    describe('useCreateStaff', () => {
+      it('should create staff using factory method', async () => {
+        const staffData = {
+          first_name: 'New',
+          last_name: 'Staff',
+          email: 'new.staff@pharmacy.com',
+          phone: '+4444444444',
+          role: 'cashier',
+        }
+
+        const createdStaff = {
+          ...mockStaff,
+          id: 999,
+          ...staffData,
+          role: 'cashier' as const,
+        }
+
+        server.use(
+          http.post(`${API_BASE}/users/staff/`, async ({ request }) => {
+            const body = await request.json()
+            expect(body).toMatchObject(staffData)
+            return HttpResponse.json(createdStaff, { status: 201 })
+          })
+        )
+
+        const { result } = renderHook(() => useCreateStaff(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        result.current.mutate(staffData)
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(createdStaff)
+      })
+    })
+
+    describe('useUpdateUser', () => {
+      it('should update user successfully', async () => {
+        const userId = 1
+        const updateData = { phone: '+9999999999' }
+        const updatedUser = { ...mockCustomer, ...updateData }
+
+        server.use(
+          http.patch(`${API_BASE}/users/${userId}/`, async ({ request }) => {
+            const body = await request.json()
+            expect(body).toMatchObject(updateData)
+            return HttpResponse.json(updatedUser)
+          })
+        )
+
+        const { result } = renderHook(() => useUpdateUser(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        result.current.mutate({ id: userId, ...updateData })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(updatedUser)
+      })
+
+      it('should update cache on success', async () => {
+        const userId = 1
+        const updateData = { phone: '+9999999999' }
+        const updatedUser = { ...mockCustomer, ...updateData }
+
+        // Pre-populate cache
+        queryClient.setQueryData(queryKeys.users.detail(userId), mockCustomer)
+        queryClient.setQueryData(queryKeys.users.lists(), mockUsers)
+
+        server.use(
+          http.patch(`${API_BASE}/users/${userId}/`, () => {
+            return HttpResponse.json(updatedUser)
+          })
+        )
+
+        const { result } = renderHook(() => useUpdateUser(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        result.current.mutate({ id: userId, ...updateData })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        // Check that cache was updated
+        const detailCache = queryClient.getQueryData(queryKeys.users.detail(userId))
+        expect(detailCache).toEqual(updatedUser)
+
+        const listCache = queryClient.getQueryData(queryKeys.users.lists()) as User[]
+        const updatedInList = listCache.find(u => u.id === userId)
+        expect(updatedInList).toEqual(updatedUser)
+      })
+    })
+
+    describe('useUpgradeToVip', () => {
+      it('should upgrade user to VIP', async () => {
+        const userId = 1
+
+        server.use(
+          http.post(`${API_BASE}/users/${userId}/upgrade_to_vip/`, () => {
+            return HttpResponse.json({ success: true }, { status: 200 })
+          })
+        )
+
+        const { result } = renderHook(() => useUpgradeToVip(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        result.current.mutate(userId)
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+      })
+
+      it('should update user role in cache optimistically', async () => {
+        const userId = 1
+
+        // Pre-populate cache with regular customer
+        queryClient.setQueryData(queryKeys.users.detail(userId), mockCustomer)
+
+        server.use(
+          http.post(`${API_BASE}/users/${userId}/upgrade_to_vip/`, async () => {
+            await new Promise(resolve => setTimeout(resolve, 100))
+            return HttpResponse.json({ success: true })
+          })
+        )
+
+        const { result } = renderHook(() => useUpgradeToVip(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        result.current.mutate(userId)
+
+        // Should update role immediately in cache
+        const cacheData = queryClient.getQueryData(queryKeys.users.detail(userId)) as User
+        expect(cacheData.role).toBe('vip_customer')
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+      })
+    })
+
+    describe('useDeleteUser', () => {
+      it('should delete user successfully', async () => {
+        const userId = 1
+
+        server.use(
+          http.delete(`${API_BASE}/users/${userId}/`, () => {
+            return new HttpResponse(null, { status: 204 })
+          })
+        )
+
+        const { result } = renderHook(() => useDeleteUser(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        result.current.mutate(userId)
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+      })
+
+      it('should handle optimistic deletion', async () => {
+        const userId = 1
+
+        // Pre-populate cache
+        queryClient.setQueryData(queryKeys.users.lists(), mockUsers)
+
+        server.use(
+          http.delete(`${API_BASE}/users/${userId}/`, async () => {
+            await new Promise(resolve => setTimeout(resolve, 100))
+            return new HttpResponse(null, { status: 204 })
+          })
+        )
+
+        const { result } = renderHook(() => useDeleteUser(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        result.current.mutate(userId)
+
+        // Should have optimistic deletion immediately
+        const cacheData = queryClient.getQueryData(queryKeys.users.lists()) as User[]
+        expect(cacheData.find(u => u.id === userId)).toBeUndefined()
+        expect(cacheData.length).toBe(mockUsers.length - 1)
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+      })
+    })
+  })
+
+  describe('Statistics Hooks', () => {
+    describe('useUserStats', () => {
+      it('should calculate user statistics', async () => {
+        server.use(
+          http.get(`${API_BASE}/users/`, () => {
+            return HttpResponse.json(mockUsers)
+          })
+        )
+
+        const { result } = renderHook(() => useUserStats(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isLoading).toBe(false)
+        })
+
+        expect(result.current.totalUsers).toBe(4)
+        expect(result.current.customers).toBe(2) // customer + vip_customer
+        expect(result.current.vipCustomers).toBe(1)
+        expect(result.current.staff).toBe(2) // pharmacist + technician
+        expect(result.current.activeUsers).toBe(4) // all are active
+      })
+
+      it('should return default values when no data', () => {
+        const { result } = renderHook(() => useUserStats(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        expect(result.current.totalUsers).toBe(0)
+        expect(result.current.customers).toBe(0)
+        expect(result.current.vipCustomers).toBe(0)
+        expect(result.current.staff).toBe(0)
+        expect(result.current.activeUsers).toBe(0)
+      })
+    })
+
+    describe('useCustomerStats', () => {
+      it('should calculate customer statistics', async () => {
+        server.use(
+          http.get(`${API_BASE}/users/customers/`, () => {
+            return HttpResponse.json([mockCustomer, mockVipCustomer])
+          })
+        )
+
+        const { result } = renderHook(() => useCustomerStats(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isLoading).toBe(false)
+        })
+
+        expect(result.current.totalCustomers).toBe(2)
+        expect(result.current.regularCustomers).toBe(1)
+        expect(result.current.vipCustomers).toBe(1)
+        expect(result.current.activeCustomers).toBe(2)
+      })
+    })
+
+    describe('useStaffStats', () => {
+      it('should calculate staff statistics', async () => {
+        const staffUsers = [mockPharmacist, mockStaff, {
+          ...mockStaff,
+          id: 5,
+          role: 'manager' as const,
+          first_name: 'Manager',
+        }]
+
+        server.use(
+          http.get(`${API_BASE}/users/`, () => {
+            return HttpResponse.json([...mockUsers, staffUsers[2]])
+          })
+        )
+
+        const { result } = renderHook(() => useStaffStats(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isLoading).toBe(false)
+        })
+
+        expect(result.current.totalStaff).toBe(3) // pharmacist + technician + manager
+        expect(result.current.pharmacists).toBe(1)
+        expect(result.current.technicians).toBe(1)
+        expect(result.current.managers).toBe(1)
+        expect(result.current.cashiers).toBe(0)
+        expect(result.current.inventoryManagers).toBe(0)
+        expect(result.current.activeStaff).toBe(3)
+      })
+    })
+  })
+
+  describe('Error Handling', () => {
+    it('should retry failed requests', async () => {
+      let callCount = 0
+      server.use(
+        http.get(`${API_BASE}/users/`, () => {
+          callCount++
+          if (callCount < 3) {
+            return new HttpResponse(null, { status: 500 })
+          }
+          return HttpResponse.json(mockUsers)
+        })
+      )
+
+      const { result } = renderHook(() => useUsers(), {
+        wrapper: createWrapper(queryClient)
+        }
+      })
+
+      await waitFor(() => {
+        expect(result.current.isSuccess).toBe(true)
+      }, { timeout: 10000 })
+
+      expect(callCount).toBe(3)
+      expect(result.current.data).toEqual(mockUsers)
+    })
+
+    it('should handle network errors', async () => {
+      server.use(
+        http.get(`${API_BASE}/users/`, () => {
+          return HttpResponse.error()
+        })
+      )
+
+      const { result } = renderHook(() => useUsers(), {
+        wrapper: createWrapper(queryClient)
+        }
+      })
+
+      await waitFor(() => {
+        expect(result.current.isError).toBe(true)
+      })
+
+      expect(result.current.error).toBeTruthy()
+    })
+  })
+
+  describe('Cache Invalidation', () => {
+    it('should invalidate correct queries after mutations', async () => {
+      const newUserData = {
+        first_name: 'New',
+        last_name: 'User',
+        email: 'new.user@example.com',
+        phone: '+1111111111',
+        role: 'customer' as const,
+      }
+
+      server.use(
+        http.post(`${API_BASE}/users/`, () => {
+          return HttpResponse.json({ ...mockCustomer, id: 999, ...newUserData }, { status: 201 })
+        })
+      )
+
+      // Mock invalidateQueries to track calls
+      const invalidateQueriesSpy = jest.spyOn(queryClient, 'invalidateQueries')
+
+      const { result } = renderHook(() => useCreateUser(), {
+        wrapper: createWrapper(queryClient)
+        }
+      })
+
+      result.current.mutate(newUserData)
+
+      await waitFor(() => {
+        expect(result.current.isSuccess).toBe(true)
+      })
+
+      // Should invalidate user-related queries
+      expect(invalidateQueriesSpy).toHaveBeenCalled()
+    })
+  })
+})
