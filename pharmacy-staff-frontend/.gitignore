@@ -32,8 +32,10 @@ out
 .env.production.local
 .env*.local
 
-# Vercel
+# Vercel deployment
 .vercel
+*.vercel.json
+.vercel.json
 
 # TypeScript
 *.tsbuildinfo
