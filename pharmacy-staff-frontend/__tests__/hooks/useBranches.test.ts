@@ -1,0 +1,816 @@
+import { renderHook, waitFor } from '@testing-library/react'
+import { QueryClient } from '@tanstack/react-query'
+import { server } from '../mocks/server'
+import { http, HttpResponse } from 'msw'
+import { createTestQueryClient } from '../utils/test-utils'
+import { queryKeys } from '@/lib/queryKeys'
+import type { Branch, BranchStaffSummary, BranchConfig } from '@/lib/types'
+import {
+  useBranches,
+  useBranch,
+  useBranchStaffSummary,
+  useBranchConfigs,
+  useBranchConfig,
+  useCreateBranch,
+  useUpdateBranch,
+  useDeleteBranch,
+  useCreateBranchConfig,
+  useUpdateBranchConfig,
+  useDeleteBranchConfig,
+  useBranchStats,
+} from '@/hooks/api/useBranches'
+import { createWrapper } from '../utils'
+
+// Mock data
+const mockBranch: Branch = {
+  id: 1,
+  name: 'Main Branch',
+  address: '123 Main St',
+  phone: '+1234567890',
+  email: 'main@pharmacy.com',
+  established_date: '2020-01-01',
+  is_active: true,
+  status: 'active',
+  created_at: '2024-01-01T00:00:00Z',
+  updated_at: '2024-01-01T00:00:00Z',
+  total_products: 150,
+  staff_count: 12,
+  user_count: 12,
+  manager_name: 'John Manager',
+  operating_hours: '9:00 AM - 9:00 PM',
+  coordinates: '40.7128,-74.0060',
+}
+
+const mockSecondaryBranch: Branch = {
+  ...mockBranch,
+  id: 2,
+  name: 'Secondary Branch',
+  address: '456 Oak St',
+  email: 'secondary@pharmacy.com',
+  total_products: 100,
+  staff_count: 8,
+  user_count: 8,
+  status: 'active',
+}
+
+const mockMaintenanceBranch: Branch = {
+  ...mockBranch,
+  id: 3,
+  name: 'Under Maintenance Branch',
+  address: '789 Pine St',
+  email: 'maintenance@pharmacy.com',
+  status: 'maintenance',
+  is_active: false,
+  total_products: 50,
+  staff_count: 3,
+  user_count: 3,
+}
+
+const mockBranches: Branch[] = [mockBranch, mockSecondaryBranch, mockMaintenanceBranch]
+
+const mockBranchStaffSummary: BranchStaffSummary = {
+  id: 1,
+  branch_name: 'Main Branch',
+  total_staff: 12,
+  pharmacists: 3,
+  technicians: 4,
+  managers: 2,
+  cashiers: 2,
+  inventory_managers: 1,
+  active_staff: 11,
+  on_duty_staff: 8,
+  staff_by_role: {
+    pharmacist: 3,
+    technician: 4,
+    manager: 2,
+    cashier: 2,
+    inventory_manager: 1,
+  },
+}
+
+const mockBranchConfig: BranchConfig = {
+  id: 1,
+  branch: 1,
+  branch_name: 'Main Branch',
+  auto_reorder_enabled: true,
+  low_stock_threshold: 10,
+  max_stock_threshold: 100,
+  delivery_enabled: true,
+  pickup_enabled: true,
+  prescription_required: true,
+  operating_hours: {
+    monday: '9:00-18:00',
+    tuesday: '9:00-18:00',
+    wednesday: '9:00-18:00',
+    thursday: '9:00-18:00',
+    friday: '9:00-18:00',
+    saturday: '10:00-16:00',
+    sunday: '12:00-16:00',
+  },
+  special_services: ['vaccination', 'consultation', 'home_delivery'],
+  contact_preferences: {
+    email_notifications: true,
+    sms_notifications: true,
+    call_notifications: false,
+  },
+  created_at: '2024-01-01T00:00:00Z',
+  updated_at: '2024-01-01T00:00:00Z',
+}
+
+const API_BASE = 'https://longchau-pms.onrender.com/api'
+
+describe('useBranches Hooks', () => {
+  let queryClient: QueryClient
+
+  beforeEach(() => {
+    queryClient = createTestQueryClient()
+  })
+
+  afterEach(() => {
+    queryClient.clear()
+  })
+
+  describe('Query Hooks', () => {
+    describe('useBranches', () => {
+      it('should fetch branches successfully', async () => {
+        server.use(
+          http.get(`${API_BASE}/branches/`, () => {
+            return HttpResponse.json(mockBranches)
+          })
+        )
+
+        const { result } = renderHook(() => useBranches(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(mockBranches)
+        expect(result.current.isLoading).toBe(false)
+        expect(result.current.error).toBe(null)
+      })
+
+      it('should fetch branches with filters', async () => {
+        const filters = { status: 'active', search: 'main' }
+        
+        server.use(
+          http.get(`${API_BASE}/branches/`, ({ request }) => {
+            const url = new URL(request.url)
+            expect(url.searchParams.get('status')).toBe('active')
+            expect(url.searchParams.get('search')).toBe('main')
+            return HttpResponse.json([mockBranch])
+          })
+        )
+
+        const { result } = renderHook(() => useBranches(filters), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockBranch])
+      })
+
+      it('should use correct query key', () => {
+        const filters = { status: 'active' }
+        const { result } = renderHook(() => useBranches(filters), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        const expectedKey = queryKeys.branches.list(filters)
+        expect(queryClient.getQueryCache().findAll({ queryKey: expectedKey })).toHaveLength(1)
+      })
+
+      it('should keep previous data during refetch', async () => {
+        server.use(
+          http.get(`${API_BASE}/branches/`, () => {
+            return HttpResponse.json(mockBranches)
+          })
+        )
+
+        const { result, rerender } = renderHook(() => useBranches(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        const firstData = result.current.data
+
+        // Simulate a refetch with new data
+        server.use(
+          http.get(`${API_BASE}/branches/`, () => {
+            return HttpResponse.json([...mockBranches, { ...mockBranch, id: 4 }])
+          })
+        )
+
+        queryClient.invalidateQueries({ queryKey: queryKeys.branches.lists() })
+        rerender()
+
+        // During loading, should still have previous data
+        expect(result.current.data).toEqual(firstData)
+
+        await waitFor(() => {
+          expect(result.current.data?.length).toBe(4)
+        })
+      })
+    })
+
+    describe('useBranch', () => {
+      it('should fetch single branch successfully', async () => {
+        const branchId = 1
+        server.use(
+          http.get(`${API_BASE}/branches/${branchId}/`, () => {
+            return HttpResponse.json(mockBranch)
+          })
+        )
+
+        const { result } = renderHook(() => useBranch(branchId), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(mockBranch)
+      })
+
+      it('should not run query when id is invalid', () => {
+        const { result } = renderHook(() => useBranch(0), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        expect(result.current.data).toBeUndefined()
+        expect(result.current.isPending).toBe(false)
+        expect(result.current.fetchStatus).toBe('idle')
+      })
+    })
+
+    describe('useBranchStaffSummary', () => {
+      it('should fetch branch staff summary successfully', async () => {
+        const branchId = 1
+        server.use(
+          http.get(`${API_BASE}/branches/${branchId}/staff_summary/`, () => {
+            return HttpResponse.json(mockBranchStaffSummary)
+          })
+        )
+
+        const { result } = renderHook(() => useBranchStaffSummary(branchId), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(mockBranchStaffSummary)
+      })
+
+      it('should not run query when id is invalid', () => {
+        const { result } = renderHook(() => useBranchStaffSummary(0), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        expect(result.current.data).toBeUndefined()
+        expect(result.current.isPending).toBe(false)
+        expect(result.current.fetchStatus).toBe('idle')
+      })
+    })
+
+    describe('useBranchConfigs', () => {
+      it('should fetch branch configurations successfully', async () => {
+        server.use(
+          http.get(`${API_BASE}/branch-configs/`, () => {
+            return HttpResponse.json([mockBranchConfig])
+          })
+        )
+
+        const { result } = renderHook(() => useBranchConfigs(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockBranchConfig])
+      })
+    })
+
+    describe('useBranchConfig', () => {
+      it('should fetch single branch configuration successfully', async () => {
+        const configId = 1
+        server.use(
+          http.get(`${API_BASE}/branch-configs/${configId}/`, () => {
+            return HttpResponse.json(mockBranchConfig)
+          })
+        )
+
+        const { result } = renderHook(() => useBranchConfig(configId), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(mockBranchConfig)
+      })
+    })
+  })
+
+  describe('Mutation Hooks', () => {
+    describe('useCreateBranch', () => {
+      it('should create branch successfully', async () => {
+        const newBranchData = {
+          name: 'New Branch',
+          address: '999 New St',
+          phone: '+1999999999',
+          email: 'new@pharmacy.com',
+          status: 'active' as const,
+        }
+
+        const createdBranch = {
+          ...mockBranch,
+          id: 999,
+          ...newBranchData,
+        }
+
+        server.use(
+          http.post(`${API_BASE}/branches/`, async ({ request }) => {
+            const body = await request.json()
+            expect(body).toMatchObject(newBranchData)
+            return HttpResponse.json(createdBranch, { status: 201 })
+          })
+        )
+
+        const { result } = renderHook(() => useCreateBranch(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        result.current.mutate(newBranchData)
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(createdBranch)
+      })
+
+      it('should handle optimistic updates', async () => {
+        // Pre-populate cache
+        queryClient.setQueryData(queryKeys.branches.lists(), mockBranches)
+
+        const newBranchData = {
+          name: 'New Branch',
+          address: '999 New St',
+          phone: '+1999999999',
+          email: 'new@pharmacy.com',
+          status: 'active' as const,
+        }
+
+        server.use(
+          http.post(`${API_BASE}/branches/`, async () => {
+            await new Promise(resolve => setTimeout(resolve, 100))
+            return HttpResponse.json({ ...mockBranch, id: 999, ...newBranchData }, { status: 201 })
+          })
+        )
+
+        const { result } = renderHook(() => useCreateBranch(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        result.current.mutate(newBranchData)
+
+        // Should have optimistic update immediately
+        const cacheData = queryClient.getQueryData(queryKeys.branches.lists()) as Branch[]
+        expect(cacheData.length).toBe(mockBranches.length + 1)
+        expect(cacheData[cacheData.length - 1].name).toBe(newBranchData.name)
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+      })
+
+      it('should rollback on error', async () => {
+        // Pre-populate cache
+        queryClient.setQueryData(queryKeys.branches.lists(), mockBranches)
+
+        const newBranchData = {
+          name: 'New Branch',
+          address: '999 New St',
+          phone: '+1999999999',
+          email: 'new@pharmacy.com',
+          status: 'active' as const,
+        }
+
+        server.use(
+          http.post(`${API_BASE}/branches/`, () => {
+            return new HttpResponse(null, { status: 500 })
+          })
+        )
+
+        const { result } = renderHook(() => useCreateBranch(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        result.current.mutate(newBranchData)
+
+        await waitFor(() => {
+          expect(result.current.isError).toBe(true)
+        })
+
+        // Should rollback to original data
+        const cacheData = queryClient.getQueryData(queryKeys.branches.lists())
+        expect(cacheData).toEqual(mockBranches)
+      })
+    })
+
+    describe('useUpdateBranch', () => {
+      it('should update branch successfully', async () => {
+        const branchId = 1
+        const updateData = { phone: '+1888888888' }
+        const updatedBranch = { ...mockBranch, ...updateData }
+
+        server.use(
+          http.patch(`${API_BASE}/branches/${branchId}/`, async ({ request }) => {
+            const body = await request.json()
+            expect(body).toMatchObject(updateData)
+            return HttpResponse.json(updatedBranch)
+          })
+        )
+
+        const { result } = renderHook(() => useUpdateBranch(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        result.current.mutate({ id: branchId, ...updateData })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(updatedBranch)
+      })
+
+      it('should update cache on success', async () => {
+        const branchId = 1
+        const updateData = { phone: '+1888888888' }
+        const updatedBranch = { ...mockBranch, ...updateData }
+
+        // Pre-populate cache
+        queryClient.setQueryData(queryKeys.branches.detail(branchId), mockBranch)
+        queryClient.setQueryData(queryKeys.branches.lists(), mockBranches)
+
+        server.use(
+          http.patch(`${API_BASE}/branches/${branchId}/`, () => {
+            return HttpResponse.json(updatedBranch)
+          })
+        )
+
+        const { result } = renderHook(() => useUpdateBranch(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        result.current.mutate({ id: branchId, ...updateData })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        // Check that cache was updated
+        const detailCache = queryClient.getQueryData(queryKeys.branches.detail(branchId))
+        expect(detailCache).toEqual(updatedBranch)
+
+        const listCache = queryClient.getQueryData(queryKeys.branches.lists()) as Branch[]
+        const updatedInList = listCache.find(b => b.id === branchId)
+        expect(updatedInList).toEqual(updatedBranch)
+      })
+    })
+
+    describe('useDeleteBranch', () => {
+      it('should delete branch successfully', async () => {
+        const branchId = 1
+
+        server.use(
+          http.delete(`${API_BASE}/branches/${branchId}/`, () => {
+            return new HttpResponse(null, { status: 204 })
+          })
+        )
+
+        const { result } = renderHook(() => useDeleteBranch(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        result.current.mutate(branchId)
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+      })
+
+      it('should handle optimistic deletion', async () => {
+        const branchId = 1
+
+        // Pre-populate cache
+        queryClient.setQueryData(queryKeys.branches.lists(), mockBranches)
+
+        server.use(
+          http.delete(`${API_BASE}/branches/${branchId}/`, async () => {
+            await new Promise(resolve => setTimeout(resolve, 100))
+            return new HttpResponse(null, { status: 204 })
+          })
+        )
+
+        const { result } = renderHook(() => useDeleteBranch(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        result.current.mutate(branchId)
+
+        // Should have optimistic deletion immediately
+        const cacheData = queryClient.getQueryData(queryKeys.branches.lists()) as Branch[]
+        expect(cacheData.find(b => b.id === branchId)).toBeUndefined()
+        expect(cacheData.length).toBe(mockBranches.length - 1)
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+      })
+    })
+
+    describe('Branch Configuration Mutations', () => {
+      describe('useCreateBranchConfig', () => {
+        it('should create branch config successfully', async () => {
+          const newConfigData = {
+            branch: 1,
+            auto_reorder_enabled: true,
+            low_stock_threshold: 15,
+            delivery_enabled: true,
+          }
+
+          const createdConfig = {
+            ...mockBranchConfig,
+            id: 999,
+            ...newConfigData,
+          }
+
+          server.use(
+            http.post(`${API_BASE}/branch-configs/`, async ({ request }) => {
+              const body = await request.json()
+              expect(body).toMatchObject(newConfigData)
+              return HttpResponse.json(createdConfig, { status: 201 })
+            })
+          )
+
+          const { result } = renderHook(() => useCreateBranchConfig(), {
+            wrapper: createWrapper(queryClient)
+            }
+          })
+
+          result.current.mutate(newConfigData)
+
+          await waitFor(() => {
+            expect(result.current.isSuccess).toBe(true)
+          })
+
+          expect(result.current.data).toEqual(createdConfig)
+        })
+      })
+
+      describe('useUpdateBranchConfig', () => {
+        it('should update branch config successfully', async () => {
+          const configId = 1
+          const updateData = { low_stock_threshold: 20 }
+          const updatedConfig = { ...mockBranchConfig, ...updateData }
+
+          server.use(
+            http.patch(`${API_BASE}/branch-configs/${configId}/`, async ({ request }) => {
+              const body = await request.json()
+              expect(body).toMatchObject(updateData)
+              return HttpResponse.json(updatedConfig)
+            })
+          )
+
+          const { result } = renderHook(() => useUpdateBranchConfig(), {
+            wrapper: createWrapper(queryClient)
+            }
+          })
+
+          result.current.mutate({ id: configId, ...updateData })
+
+          await waitFor(() => {
+            expect(result.current.isSuccess).toBe(true)
+          })
+
+          expect(result.current.data).toEqual(updatedConfig)
+        })
+      })
+
+      describe('useDeleteBranchConfig', () => {
+        it('should delete branch config successfully', async () => {
+          const configId = 1
+
+          server.use(
+            http.delete(`${API_BASE}/branch-configs/${configId}/`, () => {
+              return new HttpResponse(null, { status: 204 })
+            })
+          )
+
+          const { result } = renderHook(() => useDeleteBranchConfig(), {
+            wrapper: createWrapper(queryClient)
+            }
+          })
+
+          result.current.mutate(configId)
+
+          await waitFor(() => {
+            expect(result.current.isSuccess).toBe(true)
+          })
+        })
+      })
+    })
+  })
+
+  describe('Statistics Hooks', () => {
+    describe('useBranchStats', () => {
+      it('should calculate branch statistics', async () => {
+        server.use(
+          http.get(`${API_BASE}/branches/`, () => {
+            return HttpResponse.json(mockBranches)
+          })
+        )
+
+        const { result } = renderHook(() => useBranchStats(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isLoading).toBe(false)
+        })
+
+        expect(result.current.totalBranches).toBe(3)
+        expect(result.current.activeBranches).toBe(2) // mockBranch + mockSecondaryBranch
+        expect(result.current.inactiveBranches).toBe(0)
+        expect(result.current.maintenanceBranches).toBe(1) // mockMaintenanceBranch
+        expect(result.current.totalProducts).toBe(300) // 150 + 100 + 50
+        expect(result.current.totalStaff).toBe(23) // 12 + 8 + 3
+      })
+
+      it('should return default values when no data', () => {
+        const { result } = renderHook(() => useBranchStats(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        expect(result.current.totalBranches).toBe(0)
+        expect(result.current.activeBranches).toBe(0)
+        expect(result.current.inactiveBranches).toBe(0)
+        expect(result.current.maintenanceBranches).toBe(0)
+        expect(result.current.totalProducts).toBe(0)
+        expect(result.current.totalStaff).toBe(0)
+      })
+
+      it('should handle branches with user_count instead of staff_count', async () => {
+        const branchesWithUserCount = mockBranches.map(b => ({
+          ...b,
+          staff_count: undefined,
+          user_count: b.user_count || 0,
+        }))
+
+        server.use(
+          http.get(`${API_BASE}/branches/`, () => {
+            return HttpResponse.json(branchesWithUserCount)
+          })
+        )
+
+        const { result } = renderHook(() => useBranchStats(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isLoading).toBe(false)
+        })
+
+        expect(result.current.totalStaff).toBe(23) // Should still work with user_count
+      })
+    })
+  })
+
+  describe('Error Handling', () => {
+    it('should retry failed requests', async () => {
+      let callCount = 0
+      server.use(
+        http.get(`${API_BASE}/branches/`, () => {
+          callCount++
+          if (callCount < 3) {
+            return new HttpResponse(null, { status: 500 })
+          }
+          return HttpResponse.json(mockBranches)
+        })
+      )
+
+      const { result } = renderHook(() => useBranches(), {
+        wrapper: createWrapper(queryClient)
+        }
+      })
+
+      await waitFor(() => {
+        expect(result.current.isSuccess).toBe(true)
+      }, { timeout: 10000 })
+
+      expect(callCount).toBe(3)
+      expect(result.current.data).toEqual(mockBranches)
+    })
+
+    it('should handle network errors', async () => {
+      server.use(
+        http.get(`${API_BASE}/branches/`, () => {
+          return HttpResponse.error()
+        })
+      )
+
+      const { result } = renderHook(() => useBranches(), {
+        wrapper: createWrapper(queryClient)
+        }
+      })
+
+      await waitFor(() => {
+        expect(result.current.isError).toBe(true)
+      })
+
+      expect(result.current.error).toBeTruthy()
+    })
+
+    it('should handle 404 errors', async () => {
+      const branchId = 999
+      server.use(
+        http.get(`${API_BASE}/branches/${branchId}/`, () => {
+          return new HttpResponse(null, { status: 404 })
+        })
+      )
+
+      const { result } = renderHook(() => useBranch(branchId), {
+        wrapper: createWrapper(queryClient)
+        }
+      })
+
+      await waitFor(() => {
+        expect(result.current.isError).toBe(true)
+      })
+
+      expect(result.current.error).toBeTruthy()
+    })
+  })
+
+  describe('Cache Behavior', () => {
+    it('should cache data with correct stale times', async () => {
+      server.use(
+        http.get(`${API_BASE}/branches/`, () => {
+          return HttpResponse.json(mockBranches)
+        })
+      )
+
+      const { result } = renderHook(() => useBranches(), {
+        wrapper: createWrapper(queryClient)
+        }
+      })
+
+      await waitFor(() => {
+        expect(result.current.isSuccess).toBe(true)
+      })
+
+      // Data should be cached
+      const cacheData = queryClient.getQueryData(queryKeys.branches.list())
+      expect(cacheData).toEqual(mockBranches)
+    })
+
+    it('should use shorter stale time for staff summary', async () => {
+      const branchId = 1
+      
+      server.use(
+        http.get(`${API_BASE}/branches/${branchId}/staff_summary/`, () => {
+          return HttpResponse.json(mockBranchStaffSummary)
+        })
+      )
+
+      const { result } = renderHook(() => useBranchStaffSummary(branchId), {
+        wrapper: createWrapper(queryClient)
+        }
+      })
+
+      await waitFor(() => {
+        expect(result.current.isSuccess).toBe(true)
+      })
+
+      // Should use 2 minutes stale time for staff summary (more dynamic)
+      const query_cache = queryClient.getQueryCache().find({ queryKey: queryKeys.branches.staffSummary(branchId) })
+      expect(query_cache?.options.staleTime).toBe(2 * 60 * 1000)
+    })
+  })
+})

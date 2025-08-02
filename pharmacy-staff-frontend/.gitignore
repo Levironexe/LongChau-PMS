@@ -99,10 +99,10 @@ temp/
 # Sentry
 .sentryclirc
 
-# Package managers lock files
+# Package managers lock files (Keep package-lock.json for Vercel)
 yarn.lock
-package-lock.json
 pnpm-lock.yaml
+# Keep package-lock.json for consistent deployments
 
 # AI Development Context - DO NOT COMMIT TO GITHUB
 #CLAUDE.md
