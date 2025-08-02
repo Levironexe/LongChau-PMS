@@ -2,8 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { useState, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -31,6 +30,7 @@ import {
 } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { Switch } from "@/components/ui/switch"
 import { 
   Package, 
   Plus, 
@@ -40,23 +40,28 @@ import {
   List,
   Edit,
   Trash2,
-  DollarSign,
   AlertCircle
 } from "lucide-react"
-import { api } from "@/lib/api"
-
-interface Product {
-  id: number
-  name: string
-  product_type: string
-  price: string
-  requires_prescription: boolean
-  stock?: number
-  description?: string
-  manufacturer?: string
-  expiry_date?: string
-  barcode?: string
-}
+import { Product, CreateMedicineRequest, CreateSupplementRequest, CreateMedicalDeviceRequest } from "@/lib/types"
+import { 
+  useProducts, 
+  useCreateMedicine, 
+  useCreateSupplement, 
+  useCreateMedicalDevice,
+  useUpdateMedicine,
+  useUpdateSupplement,
+  useUpdateMedicalDevice,
+  useDeleteMedicine,
+  useDeleteSupplement,
+  useDeleteMedicalDevice,
+  useProductStats
+} from "@/hooks/api/useProducts"
+import {
+  useCreateMedicineFactory,
+  useCreateSupplementFactory,
+  useCanCreateViaFactory,
+  useProductFactories
+} from "@/hooks/api/useProductFactory"
 
 export default function ProductsPage() {
   const [showDialog, setShowDialog] = useState(false)
@@ -64,6 +69,7 @@ export default function ProductsPage() {
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid')
   const [searchTerm, setSearchTerm] = useState("")
   const [categoryFilter, setCategoryFilter] = useState<string>("all")
+  const [useFactoryPattern, setUseFactoryPattern] = useState(false)
   const [formData, setFormData] = useState({
     name: "",
     product_type: "medicine",
@@ -71,88 +77,43 @@ export default function ProductsPage() {
     requires_prescription: false,
     description: "",
     manufacturer: "",
-    barcode: "",
-    stock: "",
+    batch_number: "",
+    active_ingredient: "",
+    dosage_form: "tablet" as const,
+    strength: "",
+    supplement_type: "vitamin" as const,
+    ingredients: [] as string[],
+    device_type: "diagnostic" as const,
+    device_class: "I" as const,
   })
 
-  const queryClient = useQueryClient()
+  // Real API data with filtering
+  const productFilters = {
+    ...(searchTerm && { search: searchTerm }),
+    ...(categoryFilter !== "all" && { product_type: categoryFilter as "medicine" | "supplement" | "medical_device" }),
+  }
+  const { data: products = [], isLoading, error } = useProducts(productFilters)
+  const productStats = useProductStats()
 
-  // Mock data - replace with actual API calls
-  const { data: products = [] } = useQuery({
-    queryKey: ["products"],
-    queryFn: async () => {
-      // Simulate API call - replace with actual endpoint
-      return [
-        {
-          id: 1,
-          name: "Paracetamol 500mg",
-          product_type: "medicine",
-          price: "5.99",
-          requires_prescription: false,
-          stock: 150,
-          description: "Pain relief and fever reducer",
-          manufacturer: "PharmaCorp",
-          barcode: "1234567890123"
-        },
-        {
-          id: 2,
-          name: "Amoxicillin 250mg",
-          product_type: "medicine",
-          price: "12.50",
-          requires_prescription: true,
-          stock: 75,
-          description: "Antibiotic for bacterial infections",
-          manufacturer: "MediLabs",
-          barcode: "1234567890124"
-        },
-        {
-          id: 3,
-          name: "Vitamin D3 1000IU",
-          product_type: "supplement",
-          price: "18.00",
-          requires_prescription: false,
-          stock: 200,
-          description: "Daily vitamin D supplement",
-          manufacturer: "HealthPlus",
-          barcode: "1234567890125"
-        }
-      ] as Product[]
-    },
-  })
-
-  const createProduct = useMutation({
-    mutationFn: (data: typeof formData) => {
-      // Replace with actual API call
-      return Promise.resolve({ ...data, id: Date.now(), stock: parseInt(data.stock) || 0 })
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["products"] })
-      setShowDialog(false)
-      resetForm()
-    },
-  })
-
-  const updateProduct = useMutation({
-    mutationFn: ({ id, ...data }: { id: number } & typeof formData) => {
-      // Replace with actual API call
-      return Promise.resolve({ id, ...data, stock: parseInt(data.stock) || 0 })
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["products"] })
-      setEditingProduct(null)
-      resetForm()
-    },
-  })
-
-  const deleteProduct = useMutation({
-    mutationFn: (id: number) => {
-      // Replace with actual API call
-      return Promise.resolve()
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["products"] })
-    },
-  })
+  // Real API mutations based on product type
+  const createMedicine = useCreateMedicine()
+  const createSupplement = useCreateSupplement()
+  const createMedicalDevice = useCreateMedicalDevice()
+  
+  // Factory pattern hooks
+  const createMedicineFactory = useCreateMedicineFactory()
+  const createSupplementFactory = useCreateSupplementFactory()
+  const { data: productFactories } = useProductFactories()
+  const { canCreate: canCreateMedicineViaFactory } = useCanCreateViaFactory('medicine')
+  const { canCreate: canCreateSupplementViaFactory } = useCanCreateViaFactory('supplement')
+  
+  const updateMedicine = useUpdateMedicine()
+  const updateSupplement = useUpdateSupplement()
+  const updateMedicalDevice = useUpdateMedicalDevice()
+  
+  const deleteMedicine = useDeleteMedicine()
+  const deleteSupplement = useDeleteSupplement()
+  const deleteMedicalDevice = useDeleteMedicalDevice()
 
   const resetForm = () => {
     setFormData({
@@ -162,19 +123,119 @@ export default function ProductsPage() {
       requires_prescription: false,
       description: "",
       manufacturer: "",
-      barcode: "",
-      stock: "",
+      batch_number: "",
+      active_ingredient: "",
+      dosage_form: "tablet" as const,
+      strength: "",
+      supplement_type: "vitamin" as const,
+      ingredients: [] as string[],
+      device_type: "diagnostic" as const,
+      device_class: "I" as const,
     })
   }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    
+    const baseData = {
+      name: formData.name,
+      price: formData.price,
+      description: formData.description,
+      manufacturer: formData.manufacturer,
+      batch_number: formData.batch_number,
+      requires_prescription: formData.requires_prescription,
+    }
+    
     if (editingProduct) {
-      updateProduct.mutate({ id: editingProduct.id, ...formData })
+      // Update existing product based on type
+      if (editingProduct.product_type === 'medicine') {
+        const medicineData = {
+          id: editingProduct.id,
+          ...baseData,
+          active_ingredient: formData.active_ingredient,
+          dosage_form: formData.dosage_form,
+          strength: formData.strength,
+          is_prescription: formData.requires_prescription,
+        } as { id: number } & Partial<CreateMedicineRequest>
+        updateMedicine.mutate(medicineData)
+      } else if (editingProduct.product_type === 'supplement') {
+        const supplementData = {
+          id: editingProduct.id,
+          ...baseData,
+          supplement_type: formData.supplement_type,
+          ingredients: formData.ingredients,
+        } as { id: number } & Partial<CreateSupplementRequest>
+        updateSupplement.mutate(supplementData)
+      } else if (editingProduct.product_type === 'medical_device') {
+        const deviceData = {
+          id: editingProduct.id,
+          ...baseData,
+          device_type: formData.device_type,
+          device_class: formData.device_class,
+        } as { id: number } & Partial<CreateMedicalDeviceRequest>
+        updateMedicalDevice.mutate(deviceData)
+      }
     } else {
-      createProduct.mutate(formData)
+      // Create new product based on type and pattern preference
+      if (formData.product_type === 'medicine') {
+        const medicineData = {
+          ...baseData,
+          active_ingredient: formData.active_ingredient,
+          dosage_form: formData.dosage_form,
+          strength: formData.strength,
+          is_prescription: formData.requires_prescription,
+        } as CreateMedicineRequest
+        
+        // Use factory pattern if enabled and available
+        if (useFactoryPattern && canCreateMedicineViaFactory) {
+          createMedicineFactory.mutate(medicineData)
+        } else {
+          createMedicine.mutate(medicineData)
+        }
+      } else if (formData.product_type === 'supplement') {
+        const supplementData = {
+          ...baseData,
+          supplement_type: formData.supplement_type,
+          ingredients: formData.ingredients,
+        } as CreateSupplementRequest
+        
+        // Use factory pattern if enabled and available
+        if (useFactoryPattern && canCreateSupplementViaFactory) {
+          createSupplementFactory.mutate(supplementData)
+        } else {
+          createSupplement.mutate(supplementData)
+        }
+      } else if (formData.product_type === 'medical_device') {
+        const deviceData = {
+          ...baseData,
+          device_type: formData.device_type,
+          device_class: formData.device_class,
+        } as CreateMedicalDeviceRequest
+        createMedicalDevice.mutate(deviceData)
+      }
     }
   }
+  
+  // Check if any mutation is pending
+  const isSubmitting = createMedicine.isPending || createSupplement.isPending || createMedicalDevice.isPending || 
+                      updateMedicine.isPending || updateSupplement.isPending || updateMedicalDevice.isPending ||
+                      createMedicineFactory.isPending || createSupplementFactory.isPending
+  
+  // Handle successful mutations
+  const handleMutationSuccess = useCallback(() => {
+    setShowDialog(false)
+    setEditingProduct(null)
+    resetForm()
+  }, [])
+  
+  // Set up success handlers
+  useEffect(() => {
+    if (createMedicine.isSuccess || createSupplement.isSuccess || createMedicalDevice.isSuccess ||
+        updateMedicine.isSuccess || updateSupplement.isSuccess || updateMedicalDevice.isSuccess) {
+      handleMutationSuccess()
+    }
+  }, [createMedicine.isSuccess, createSupplement.isSuccess, createMedicalDevice.isSuccess,
+      updateMedicine.isSuccess, updateSupplement.isSuccess, updateMedicalDevice.isSuccess, handleMutationSuccess])
 
   const handleEdit = (product: Product) => {
     setEditingProduct(product)
@@ -185,20 +246,33 @@ export default function ProductsPage() {
       requires_prescription: product.requires_prescription,
       description: product.description || "",
       manufacturer: product.manufacturer || "",
-      barcode: product.barcode || "",
-      stock: product.stock?.toString() || "",
+      batch_number: product.batch_number || "",
+      active_ingredient: (product as any).active_ingredient || "",
+      dosage_form: (product as any).dosage_form || "tablet",
+      strength: (product as any).strength || "",
+      supplement_type: (product as any).supplement_type || "vitamin",
+      ingredients: (product as any).ingredients || [],
+      device_type: (product as any).device_type || "diagnostic",
+      device_class: (product as any).device_class || "I",
     })
     setShowDialog(true)
   }
 
-  const filteredProducts = products.filter((product: Product) => {
-    const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesCategory = categoryFilter === "all" || product.product_type === categoryFilter
-    return matchesSearch && matchesCategory
-  })
-
+  const handleDelete = (product: Product) => {
+    if (product.product_type === 'medicine') {
+      deleteMedicine.mutate(product.id)
+    } else if (product.product_type === 'supplement') {
+      deleteSupplement.mutate(product.id)
+    } else if (product.product_type === 'medical_device') {
+      deleteMedicalDevice.mutate(product.id)
+    }
+  }
+  
+  // No need to filter here - filtering is done by the API
+  const filteredProducts = products
+  
+  // Use product stats from the hook
   const prescriptionProducts = products.filter(p => p.requires_prescription)
-  const lowStockProducts = products.filter(p => (p.stock || 0) < 50)
 
   return (
     <div className="space-y-6">
@@ -224,7 +298,10 @@ export default function ProductsPage() {
             <Package className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{products.length}</div>
+            <div className="text-2xl font-bold">{productStats.totalProducts}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {productStats.medicines} medicines, {productStats.supplements} supplements, {productStats.medicalDevices} devices
+            </p>
           </CardContent>
         </Card>
         <Card>
@@ -233,26 +310,32 @@ export default function ProductsPage() {
             <AlertCircle className="h-4 w-4 text-red-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-600">{prescriptionProducts.length}</div>
+            <div className="text-2xl font-bold text-red-600">{productStats.prescriptionProducts}</div>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Low Stock</CardTitle>
-            <AlertCircle className="h-4 w-4 text-orange-600" />
+            <CardTitle className="text-sm font-medium">Factory Patterns</CardTitle>
+            <Grid3X3 className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-orange-600">{lowStockProducts.length}</div>
+            <div className="text-2xl font-bold text-green-600">{productFactories?.length || 0}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Available product factories
+            </p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Avg. Price</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Total Catalog Value</CardTitle>
+            <Package className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              ${products.length > 0 ? (products.reduce((sum: number, p: Product) => sum + parseFloat(p.price || '0'), 0) / products.length).toFixed(2) : '0.00'}
+              ₫{productStats.totalValue.toLocaleString('vi-VN')}
+            </div>
+            <div className="text-xs text-muted-foreground mt-1">
+              Combined value of all products
             </div>
           </CardContent>
         </Card>
@@ -281,6 +364,7 @@ export default function ProductsPage() {
               <SelectItem value="all">All Categories</SelectItem>
               <SelectItem value="medicine">Medicine</SelectItem>
               <SelectItem value="supplement">Supplement</SelectItem>
+              <SelectItem value="medical_device">Medical Device</SelectItem>
             </SelectContent>
           </Select>
           <Button
@@ -329,7 +413,7 @@ export default function ProductsPage() {
                       variant="ghost" 
                       size="icon" 
                       className="h-8 w-8"
-                      onClick={() => deleteProduct.mutate(product.id)}
+                      onClick={() => handleDelete(product)}
                     >
                       <Trash2 className="h-3 w-3" />
                     </Button>
@@ -337,9 +421,9 @@ export default function ProductsPage() {
                 </div>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-lg font-bold">${product.price}</span>
-                    <span className={`text-sm ${(product.stock || 0) < 50 ? 'text-orange-600' : 'text-muted-foreground'}`}>
-                      Stock: {product.stock || 0}
+                    <span className="text-lg font-bold">₫{parseFloat(product.price).toLocaleString('vi-VN')}</span>
+                    <span className="text-sm text-muted-foreground">
+                      {product.requires_prescription ? 'Prescription' : 'OTC'}
                     </span>
                   </div>
                   {product.requires_prescription && (
@@ -364,7 +448,6 @@ export default function ProductsPage() {
                 <TableHead>Name</TableHead>
                 <TableHead>Category</TableHead>
                 <TableHead>Price</TableHead>
-                <TableHead>Stock</TableHead>
                 <TableHead>Manufacturer</TableHead>
                 <TableHead>Prescription</TableHead>
                 <TableHead>Actions</TableHead>
@@ -384,12 +467,7 @@ export default function ProductsPage() {
                   <TableCell>
                     <Badge variant="secondary">{product.product_type}</Badge>
                   </TableCell>
-                  <TableCell className="font-medium">${product.price}</TableCell>
-                  <TableCell>
-                    <span className={`${(product.stock || 0) < 50 ? 'text-orange-600 font-medium' : ''}`}>
-                      {product.stock || 0}
-                    </span>
-                  </TableCell>
+                  <TableCell className="font-medium">₫{parseFloat(product.price).toLocaleString('vi-VN')}</TableCell>
                   <TableCell>{product.manufacturer || '-'}</TableCell>
                   <TableCell>
                     {product.requires_prescription ? (
@@ -412,7 +490,7 @@ export default function ProductsPage() {
                         variant="ghost" 
                         size="icon" 
                         className="h-8 w-8"
-                        onClick={() => deleteProduct.mutate(product.id)}
+                        onClick={() => handleDelete(product)}
                       >
                         <Trash2 className="h-3 w-3" />
                       </Button>
@@ -457,28 +535,46 @@ export default function ProductsPage() {
                 </Select>
               </div>
             </div>
+            
+            {/* Factory Pattern Toggle - Only show for create mode and supported product types */}
+            {!editingProduct && (
+              (formData.product_type === 'medicine' && canCreateMedicineViaFactory) ||
+              (formData.product_type === 'supplement' && canCreateSupplementViaFactory)
+            ) && (
+              <div className="border border-dashed border-gray-300 rounded-lg p-4 bg-gray-50/50">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1">
+                    <Label htmlFor="factory-toggle" className="text-sm font-medium text-gray-900">
+                      Use Factory Pattern
+                    </Label>
+                    <p className="text-xs text-gray-500">
+                      Create this {formData.product_type} using the Factory Pattern with enhanced defaults and validation
+                    </p>
+                  </div>
+                  <Switch
+                    id="factory-toggle"
+                    checked={useFactoryPattern}
+                    onCheckedChange={setUseFactoryPattern}
+                  />
+                </div>
+                {useFactoryPattern && (
+                  <div className="mt-3 text-xs text-blue-600 bg-blue-50 px-3 py-2 rounded">
+                    ✨ Factory Pattern enabled - Enhanced creation with built-in optimizations
+                  </div>
+                )}
+              </div>
+            )}
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="price">Price ($)</Label>
-                <Input
-                  id="price"
-                  type="number"
-                  step="0.01"
-                  value={formData.price}
-                  onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="stock">Stock Quantity</Label>
-                <Input
-                  id="stock"
-                  type="number"
-                  value={formData.stock}
-                  onChange={(e) => setFormData({ ...formData, stock: e.target.value })}
-                />
-              </div>
+            <div className="space-y-2">
+              <Label htmlFor="price">Price (₫)</Label>
+              <Input
+                id="price"
+                type="number"
+                step="0.01"
+                value={formData.price}
+                onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+                required
+              />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -491,11 +587,11 @@ export default function ProductsPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="barcode">Barcode</Label>
+                <Label htmlFor="batch_number">Batch Number</Label>
                 <Input
-                  id="barcode"
-                  value={formData.barcode}
-                  onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
+                  id="batch_number"
+                  value={formData.batch_number}
+                  onChange={(e) => setFormData({ ...formData, batch_number: e.target.value })}
                 />
               </div>
             </div>
@@ -533,7 +629,7 @@ export default function ProductsPage() {
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={createProduct.isPending || updateProduct.isPending}>
+              <Button type="submit" disabled={isSubmitting}>
                 {editingProduct ? 'Update' : 'Create'} Product
               </Button>
             </div>

@@ -58,69 +58,46 @@ const sidebarItems = [
   {
     title: "Warehouse",
     href: "/warehouse",
-    icon: Warehouse,
-    badge: "2", // Pending requests
+    icon: Factory,
   },
   {
-    title: "Stores",
-    href: "/stores",
+    title: "Branches",
+    href: "/branches",
     icon: Store,
   },
-  // UNIFIED USER MANAGEMENT (RBAC)
   {
-    title: "Users",
-    href: "/users",
-    icon: Users,
-    badge: "NEW", // Unified users endpoint
-  },
-  // Legacy pages (kept for backward compatibility)
-  {
-    title: "Customers (Legacy)",
+    title: "Customers",
     href: "/customers",
     icon: Crown,
   },
   {
-    title: "Staff (Legacy)",
+    title: "Staff",
     href: "/staff",
     icon: UserCog,
   },
-  // UNIFIED ORDER SYSTEM
   {
     title: "Orders",
     href: "/orders",
     icon: ShoppingCart,
-    badge: "UPD", // Updated with order types
   },
   {
     title: "Prescriptions",
     href: "/prescriptions",
     icon: FileText,
   },
-  // NEW UNIFIED DELIVERY SYSTEM
   {
     title: "Deliveries",
     href: "/deliveries",
     icon: Truck,
-    badge: "NEW",
   },
-  // NEW LOYALTY POINTS SYSTEM
   {
     title: "Loyalty Points",
     href: "/loyalty",
     icon: Award,
-    badge: "NEW",
   },
-  // NEW REPORTS SYSTEM
   {
     title: "Reports",
     href: "/reports",
-    icon: BarChart3,
-    badge: "NEW",
-  },
-  // Legacy analytics
-  {
-    title: "Analytics (Legacy)",
-    href: "/analytics",
     icon: BarChart3,
   },
   {

@@ -6,6 +6,8 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Progress } from "@/components/ui/progress"
 import { useQuery } from "@tanstack/react-query"
+import { useOrders } from "@/hooks/api/useOrders"
+import { useUsers } from "@/hooks/api/useUsers"
 import { 
   Package, 
   Users, 
@@ -18,37 +20,82 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   CheckCircle,
-  UserCog
+  UserCog,
+  BarChart3
 } from "lucide-react"
 import { api } from "@/lib/api"
 import Link from "next/link"
+import { RevenueChart } from "@/components/charts/RevenueChart"
+import { OrdersChart } from "@/components/charts/OrdersChart"
+import { InventoryStatusChart } from "@/components/charts/InventoryStatusChart"
+import { useMemo } from "react"
 
 export default function HomePage() {
-  const { data: products = [] } = useQuery({
-    queryKey: ["products"],
-    queryFn: () => api.get("/products/").then((res) => res.data),
-  })
+  // Mock products data for dashboard - replace with actual products API when available
+  const products = useMemo(() => [
+    { id: 1, name: "Paracetamol 500mg", stock: 150, low_stock_threshold: 50 },
+    { id: 2, name: "Ibuprofen 400mg", stock: 120, low_stock_threshold: 30 },
+    { id: 3, name: "Amoxicillin 500mg", stock: 80, low_stock_threshold: 25 }
+  ], [])
 
-  const { data: customers = [] } = useQuery({
-    queryKey: ["customers"],
-    queryFn: () => api.get("/customers/").then((res) => res.data),
-  })
+  const { data: allUsers = [] } = useUsers()
+  const customers = allUsers.filter(user => ['customer', 'vip_customer'].includes(user.role))
 
-  const { data: orders = [] } = useQuery({
-    queryKey: ["orders"],
-    queryFn: () => api.get("/orders/").then((res) => res.data),
-  })
+  const { data: orders = [] } = useOrders()
 
-  const { data: lowStock = [] } = useQuery({
-    queryKey: ["inventory", "low-stock"],
-    queryFn: () => api.get("/inventory/low_stock/").then((res) => res.data),
-  })
+  // Mock low stock data for dashboard - replace with actual inventory API when available  
+  const lowStock = products.filter(product => product.stock < product.low_stock_threshold)
 
   const todayOrders = orders.filter(
     (order: any) => new Date(order.order_date).toDateString() === new Date().toDateString(),
   )
 
   const todayRevenue = todayOrders.reduce((sum: number, order: any) => sum + parseFloat(order.total_amount || 0), 0)
+
+  // Generate chart data based on real orders data
+  const revenueData = useMemo(() => {
+    const last7Days = Array.from({ length: 7 }, (_, i) => {
+      const date = new Date()
+      date.setDate(date.getDate() - i)
+      return date
+    }).reverse()
+    
+    return last7Days.map(date => {
+      const dayOrders = orders.filter((order: any) => 
+        new Date(order.order_date).toDateString() === date.toDateString()
+      )
+      const dayRevenue = dayOrders.reduce((sum: number, order: any) => 
+        sum + parseFloat(order.total_amount || 0), 0
+      )
+      
+      return {
+        date: date.toLocaleDateString('vi-VN', { month: 'short', day: 'numeric' }),
+        revenue: dayRevenue,
+        orders: dayOrders.length
+      }
+    })
+  }, [orders])
+
+  const ordersData = useMemo(() => {
+    const orderTypes = ['prescription', 'in_store', 'online']
+    return orderTypes.map(type => ({
+      date: type.charAt(0).toUpperCase() + type.slice(1).replace('_', ' '),
+      orders: orders.filter((order: any) => order.order_type === type).length,
+      type
+    }))
+  }, [orders])
+
+  const inventoryData = useMemo(() => {
+    const inStock = products.filter(p => p.stock >= p.low_stock_threshold).length
+    const lowStockCount = lowStock.length
+    const outOfStock = 0 // No out of stock products in current data
+    
+    return [
+      { status: 'In Stock', count: inStock, color: '#10b981' },
+      { status: 'Low Stock', count: lowStockCount, color: '#f59e0b' },
+      { status: 'Out of Stock', count: outOfStock, color: '#ef4444' }
+    ].filter(item => item.count > 0)
+  }, [products, lowStock])
 
   return (
     <div className="space-y-6">
@@ -78,7 +125,7 @@ export default function HomePage() {
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">${todayRevenue.toFixed(2)}</div>
+            <div className="text-2xl font-bold">₫{todayRevenue.toLocaleString('vi-VN')}</div>
             <p className="text-xs text-muted-foreground">
               <TrendingUp className="h-3 w-3 inline mr-1" />
               +12% from yesterday
@@ -144,18 +191,18 @@ export default function HomePage() {
                 <TabsTrigger value="inventory">Inventory</TabsTrigger>
               </TabsList>
               <TabsContent value="revenue" className="space-y-4">
-                <div className="h-[200px] flex items-center justify-center border rounded-lg bg-muted/10">
-                  <p className="text-muted-foreground">Revenue Chart Placeholder</p>
+                <div className="h-[200px]">
+                  <RevenueChart data={revenueData} />
                 </div>
               </TabsContent>
               <TabsContent value="orders" className="space-y-4">
-                <div className="h-[200px] flex items-center justify-center border rounded-lg bg-muted/10">
-                  <p className="text-muted-foreground">Orders Chart Placeholder</p>
+                <div className="h-[200px]">
+                  <OrdersChart data={ordersData} />
                 </div>
               </TabsContent>
               <TabsContent value="inventory" className="space-y-4">
-                <div className="h-[200px] flex items-center justify-center border rounded-lg bg-muted/10">
-                  <p className="text-muted-foreground">Inventory Chart Placeholder</p>
+                <div className="h-[200px]">
+                  <InventoryStatusChart data={inventoryData} />
                 </div>
               </TabsContent>
             </Tabs>
@@ -184,7 +231,7 @@ export default function HomePage() {
                       </p>
                     </div>
                   </div>
-                  <div className="text-sm font-medium">${order.total_amount}</div>
+                  <div className="text-sm font-medium">₫{parseFloat(order.total_amount).toLocaleString('vi-VN')}</div>
                 </div>
               ))}
             </div>

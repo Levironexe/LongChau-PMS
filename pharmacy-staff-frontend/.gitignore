@@ -105,4 +105,4 @@ package-lock.json
 pnpm-lock.yaml
 
 # AI Development Context - DO NOT COMMIT TO GITHUB
-CLAUDE.md
+#CLAUDE.md

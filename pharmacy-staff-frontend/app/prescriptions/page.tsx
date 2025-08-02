@@ -46,35 +46,24 @@ import {
   XCircle
 } from "lucide-react"
 import { api } from "@/lib/api"
+import {
+  usePrescriptions,
+  usePrescription,
+  useCreatePrescription,
+  useUpdatePrescription,
+  useValidatePrescription,
+  useDeletePrescription,
+  usePrescriptionStats,
+} from "@/hooks/api/usePrescriptions"
+import { useMedicines } from "@/hooks/api/useProducts"
+import type {
+  Prescription,
+  PrescriptionItem,
+  PrescriptionFilters,
+} from "@/lib/services/prescriptionService"
 
-interface PrescriptionItem {
-  id: number
-  product_id: number
-  product_name: string
-  dosage: string
-  frequency: string
-  duration: string
-  quantity: number
-  instructions?: string
-}
-
-interface Prescription {
-  id: number
-  prescription_number: string
-  patient_name: string
-  patient_phone: string
-  patient_email?: string
-  doctor_name: string
-  doctor_license: string
-  issue_date: string
-  expiry_date: string
-  status: "pending" | "dispensed" | "partially_dispensed" | "expired" | "cancelled"
-  items: PrescriptionItem[]
-  notes?: string
-  total_amount: number
-  dispensed_by?: string
-  dispensed_date?: string
-}
+// API types are imported from the service
+// Remove local interfaces as they're now defined in the service layer
 
 interface Doctor {
   id: number
@@ -101,125 +90,27 @@ export default function PrescriptionsPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [prescriptionItems, setPrescriptionItems] = useState<any[]>([])
   const [formData, setFormData] = useState({
+    prescription_number: "",
     patient_name: "",
-    patient_phone: "",
-    patient_email: "",
+    patient_dob: "",
     doctor_name: "",
     doctor_license: "",
+    issue_date: new Date().toISOString().split('T')[0],
     expiry_date: "",
-    notes: ""
+    submitted_by: 1, // Default to user ID 1, should be from auth context in real app
+    validation_notes: ""
   })
 
   const queryClient = useQueryClient()
 
-  // Mock prescriptions data
-  const { data: prescriptions = [] } = useQuery({
-    queryKey: ["prescriptions"],
-    queryFn: async () => {
-      return [
-        {
-          id: 1,
-          prescription_number: "RX-2024-001",
-          patient_name: "Nguyen Van An",
-          patient_phone: "+84-901-234-567",
-          patient_email: "nguyen.van.an@email.com",
-          doctor_name: "Dr. Tran Thi Minh",
-          doctor_license: "MD-12345",
-          issue_date: "2024-01-20T09:00:00Z",
-          expiry_date: "2024-02-20T09:00:00Z",
-          status: "pending",
-          total_amount: 85.50,
-          notes: "Take with food. Monitor blood pressure.",
-          items: [
-            {
-              id: 1,
-              product_id: 2,
-              product_name: "Amoxicillin 250mg",
-              dosage: "250mg",
-              frequency: "3 times daily",
-              duration: "7 days",
-              quantity: 21,
-              instructions: "Take with meals"
-            },
-            {
-              id: 2,
-              product_id: 5,
-              product_name: "Lisinopril 10mg",
-              dosage: "10mg",
-              frequency: "Once daily",
-              duration: "30 days",
-              quantity: 30,
-              instructions: "Take in the morning"
-            }
-          ]
-        },
-        {
-          id: 2,
-          prescription_number: "RX-2024-002",
-          patient_name: "Le Thi Hoa",
-          patient_phone: "+84-902-345-678",
-          patient_email: "le.thi.hoa@email.com",
-          doctor_name: "Dr. Pham Van Duc",
-          doctor_license: "MD-67890",
-          issue_date: "2024-01-19T14:30:00Z",
-          expiry_date: "2024-02-19T14:30:00Z",
-          status: "dispensed",
-          total_amount: 45.25,
-          dispensed_by: "Pharmacist Nguyen",
-          dispensed_date: "2024-01-19T15:00:00Z",
-          items: [
-            {
-              id: 3,
-              product_id: 6,
-              product_name: "Metformin 500mg",
-              dosage: "500mg",
-              frequency: "Twice daily",
-              duration: "30 days",
-              quantity: 60,
-              instructions: "Take with breakfast and dinner"
-            }
-          ]
-        },
-        {
-          id: 3,
-          prescription_number: "RX-2024-003",
-          patient_name: "Tran Van Binh",
-          patient_phone: "+84-903-456-789",
-          doctor_name: "Dr. Hoang Thi Lan",
-          doctor_license: "MD-11111",
-          issue_date: "2024-01-18T11:15:00Z",
-          expiry_date: "2024-02-18T11:15:00Z",
-          status: "partially_dispensed",
-          total_amount: 72.00,
-          dispensed_by: "Pharmacist Tran",
-          dispensed_date: "2024-01-18T12:00:00Z",
-          notes: "Patient allergic to penicillin",
-          items: [
-            {
-              id: 4,
-              product_id: 7,
-              product_name: "Atorvastatin 20mg",
-              dosage: "20mg",
-              frequency: "Once daily",
-              duration: "30 days",
-              quantity: 30,
-              instructions: "Take at bedtime"
-            },
-            {
-              id: 5,
-              product_id: 8,
-              product_name: "Aspirin 81mg",
-              dosage: "81mg",
-              frequency: "Once daily",
-              duration: "30 days",
-              quantity: 30,
-              instructions: "Take with food"
-            }
-          ]
-        }
-      ] as Prescription[]
-    },
-  })
+  // Real API integration
+  const filters: PrescriptionFilters = {
+    ...(searchTerm && { search: searchTerm }),
+    ...(statusFilter !== "all" && { status: statusFilter as Prescription['status'] }),
+  }
+  
+  const { data: prescriptions = [], isLoading, error } = usePrescriptions(filters)
+  const prescriptionStats = usePrescriptionStats()
 
   // Mock doctors data
   const { data: doctors = [] } = useQuery({
@@ -251,106 +142,80 @@ export default function PrescriptionsPage() {
     },
   })
 
-  // Mock prescription products
-  const { data: prescriptionProducts = [] } = useQuery({
-    queryKey: ["prescription-products"],
-    queryFn: async () => {
-      return [
-        {
-          id: 2,
-          name: "Amoxicillin 250mg",
-          price: "12.50",
-          stock: 75,
-          requires_prescription: true
-        },
-        {
-          id: 5,
-          name: "Lisinopril 10mg",
-          price: "28.00",
-          stock: 50,
-          requires_prescription: true
-        },
-        {
-          id: 6,
-          name: "Metformin 500mg",
-          price: "15.25",
-          stock: 120,
-          requires_prescription: true
-        },
-        {
-          id: 7,
-          name: "Atorvastatin 20mg",
-          price: "35.00",
-          stock: 80,
-          requires_prescription: true
-        },
-        {
-          id: 8,
-          name: "Aspirin 81mg",
-          price: "8.50",
-          stock: 200,
-          requires_prescription: true
-        }
-      ] as Product[]
-    },
-  })
+  // Real medicines API integration - only prescription medicines are relevant
+  const { data: medicines = [] } = useMedicines({ is_prescription: true })
+  
+  // Transform medicines to Product interface for compatibility
+  const prescriptionProducts: Product[] = medicines.map(medicine => ({
+    id: medicine.id,
+    name: medicine.name,
+    price: medicine.price,
+    stock: 100, // Default stock - could be improved with inventory integration
+    requires_prescription: medicine.requires_prescription,
+  }))
 
-  const createPrescription = useMutation({
-    mutationFn: (data: typeof formData & { items: any[] }) => {
-      const total = prescriptionItems.reduce((sum, item) => sum + (parseFloat(item.price) * item.quantity), 0)
-      return Promise.resolve({ 
-        ...data, 
-        id: Date.now(),
-        prescription_number: `RX-2024-${String(prescriptions.length + 1).padStart(3, '0')}`,
-        issue_date: new Date().toISOString(),
-        status: "pending",
-        total_amount: total,
-        items: prescriptionItems.map((item, index) => ({
-          id: Date.now() + index,
-          product_id: item.product_id,
-          product_name: item.product_name,
-          dosage: item.dosage,
-          frequency: item.frequency,
-          duration: item.duration,
-          quantity: item.quantity,
-          instructions: item.instructions
-        }))
-      })
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["prescriptions"] })
+  // Real API mutations
+  const createPrescriptionMutation = useCreatePrescription()
+  const updatePrescriptionMutation = useUpdatePrescription()
+  const validatePrescriptionMutation = useValidatePrescription()
+  const deletePrescriptionMutation = useDeletePrescription()
+  
+  const handleCreatePrescription = async () => {
+    try {
+      // Generate prescription number if not provided
+      const prescriptionNumber = formData.prescription_number || `RX-${Date.now()}`
+      
+      const prescriptionData = {
+        prescription_number: prescriptionNumber,
+        patient_name: formData.patient_name,
+        patient_dob: formData.patient_dob,
+        doctor_name: formData.doctor_name,
+        doctor_license: formData.doctor_license,
+        issue_date: formData.issue_date,
+        expiry_date: formData.expiry_date,
+        submitted_by: formData.submitted_by,
+        validation_notes: formData.validation_notes,
+      }
+      
+      await createPrescriptionMutation.mutateAsync(prescriptionData)
       setShowDialog(false)
       resetForm()
-    },
-  })
+    } catch (error) {
+      console.error('Error creating prescription:', error)
+    }
+  }
 
-  const updatePrescriptionStatus = useMutation({
-    mutationFn: ({ id, status }: { id: number, status: Prescription["status"] }) => {
-      return Promise.resolve()
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["prescriptions"] })
-    },
-  })
+  const handleUpdatePrescriptionStatus = async (id: number, status: Prescription["status"]) => {
+    try {
+      if (status === 'validated') {
+        await validatePrescriptionMutation.mutateAsync({ id, validation_notes: 'Validated by pharmacist' })
+      } else {
+        await updatePrescriptionMutation.mutateAsync({ id, status })
+      }
+    } catch (error) {
+      console.error('Error updating prescription status:', error)
+    }
+  }
 
-  const deletePrescription = useMutation({
-    mutationFn: (id: number) => {
-      return Promise.resolve()
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["prescriptions"] })
-    },
-  })
+  const handleDeletePrescription = async (id: number) => {
+    try {
+      await deletePrescriptionMutation.mutateAsync(id)
+    } catch (error) {
+      console.error('Error deleting prescription:', error)
+    }
+  }
 
   const resetForm = () => {
     setFormData({
+      prescription_number: "",
       patient_name: "",
-      patient_phone: "",
-      patient_email: "",
+      patient_dob: "",
       doctor_name: "",
       doctor_license: "",
+      issue_date: new Date().toISOString().split('T')[0],
       expiry_date: "",
-      notes: ""
+      submitted_by: 1,
+      validation_notes: ""
     })
     setPrescriptionItems([])
   }
@@ -382,7 +247,7 @@ export default function PrescriptionsPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    createPrescription.mutate({ ...formData, items: prescriptionItems })
+    handleCreatePrescription()
   }
 
   const handleViewDetails = (prescription: Prescription) => {
@@ -394,25 +259,25 @@ export default function PrescriptionsPage() {
     return prescriptionItems.reduce((total, item) => total + parseFloat(item.price) * item.quantity, 0).toFixed(2)
   }
 
-  const filteredPrescriptions = prescriptions.filter((prescription: Prescription) => {
-    const matchesSearch = prescription.patient_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         prescription.prescription_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         prescription.doctor_name.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesStatus = statusFilter === "all" || prescription.status === statusFilter
-    return matchesSearch && matchesStatus
-  })
+  // Since filtering is now handled by the API, prescriptions are already filtered
+  const filteredPrescriptions = prescriptions
+  
+  // Statistics are now provided by the custom hook
+  const {
+    total: totalPrescriptions,
+    pending: pendingCount,
+    validated: validatedCount,
+    dispensed: dispensedCount,
+    cancelled: cancelledCount,
+    expired: expiredCount,
+  } = prescriptionStats
 
-  const pendingPrescriptions = prescriptions.filter(p => p.status === "pending")
-  const dispensedPrescriptions = prescriptions.filter(p => p.status === "dispensed")
-  const partiallyDispensedPrescriptions = prescriptions.filter(p => p.status === "partially_dispensed")
-  const expiredPrescriptions = prescriptions.filter(p => p.status === "expired")
 
   const getStatusIcon = (status: Prescription["status"]) => {
     switch (status) {
-      case "pending": return <Clock className="h-3 w-3" />
+      case "submitted": return <Clock className="h-3 w-3" />
+      case "validated": return <CheckCircle className="h-3 w-3" />
       case "dispensed": return <CheckCircle className="h-3 w-3" />
-      case "partially_dispensed": return <AlertTriangle className="h-3 w-3" />
-      case "expired": return <XCircle className="h-3 w-3" />
       case "cancelled": return <XCircle className="h-3 w-3" />
       default: return <Clock className="h-3 w-3" />
     }
@@ -420,10 +285,9 @@ export default function PrescriptionsPage() {
 
   const getStatusVariant = (status: Prescription["status"]) => {
     switch (status) {
-      case "pending": return "secondary"
+      case "submitted": return "secondary"
+      case "validated": return "default"
       case "dispensed": return "default"
-      case "partially_dispensed": return "default"
-      case "expired": return "destructive"
       case "cancelled": return "destructive"
       default: return "secondary"
     }
@@ -453,17 +317,17 @@ export default function PrescriptionsPage() {
             <FileText className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{prescriptions.length}</div>
+            <div className="text-2xl font-bold">{totalPrescriptions}</div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Pending</CardTitle>
+            <CardTitle className="text-sm font-medium">Submitted</CardTitle>
             <Clock className="h-4 w-4 text-orange-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-orange-600">{pendingPrescriptions.length}</div>
+            <div className="text-2xl font-bold text-orange-600">{pendingCount}</div>
           </CardContent>
         </Card>
 
@@ -473,17 +337,17 @@ export default function PrescriptionsPage() {
             <CheckCircle className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{dispensedPrescriptions.length}</div>
+            <div className="text-2xl font-bold text-green-600">{dispensedCount}</div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Expired</CardTitle>
-            <XCircle className="h-4 w-4 text-red-600" />
+            <CardTitle className="text-sm font-medium">Validated</CardTitle>
+            <CheckCircle className="h-4 w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-600">{expiredPrescriptions.length}</div>
+            <div className="text-2xl font-bold text-red-600">{validatedCount}</div>
           </CardContent>
         </Card>
       </div>
@@ -508,10 +372,9 @@ export default function PrescriptionsPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="submitted">Submitted</SelectItem>
+              <SelectItem value="validated">Validated</SelectItem>
               <SelectItem value="dispensed">Dispensed</SelectItem>
-              <SelectItem value="partially_dispensed">Partially Dispensed</SelectItem>
-              <SelectItem value="expired">Expired</SelectItem>
               <SelectItem value="cancelled">Cancelled</SelectItem>
             </SelectContent>
           </Select>
@@ -545,7 +408,7 @@ export default function PrescriptionsPage() {
                 <TableCell>
                   <div>
                     <div className="font-medium">{prescription.patient_name}</div>
-                    <div className="text-sm text-muted-foreground">{prescription.patient_phone}</div>
+                    <div className="text-sm text-muted-foreground">DOB: {new Date(prescription.patient_dob).toLocaleDateString()}</div>
                   </div>
                 </TableCell>
                 <TableCell>
@@ -574,7 +437,7 @@ export default function PrescriptionsPage() {
                   </Badge>
                 </TableCell>
                 <TableCell>
-                  <div className="font-medium">${prescription.total_amount.toFixed(2)}</div>
+                  <div className="font-medium">{prescription.total_items} items</div>
                 </TableCell>
                 <TableCell>
                   <div className="flex gap-2">
@@ -586,21 +449,20 @@ export default function PrescriptionsPage() {
                     >
                       <Eye className="h-3 w-3" />
                     </Button>
-                    {prescription.status === "pending" && (
+                    {prescription.status === "submitted" && (
                       <Select
                         value={prescription.status}
                         onValueChange={(status: Prescription["status"]) => 
-                          updatePrescriptionStatus.mutate({ id: prescription.id, status })
+                          handleUpdatePrescriptionStatus(prescription.id, status)
                         }
                       >
                         <SelectTrigger className="w-28 h-8">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="pending">Pending</SelectItem>
-                          <SelectItem value="dispensed">Dispensed</SelectItem>
-                          <SelectItem value="partially_dispensed">Partial</SelectItem>
-                          <SelectItem value="cancelled">Cancelled</SelectItem>
+                          <SelectItem value="validated">Validate</SelectItem>
+                          <SelectItem value="dispensed">Dispense</SelectItem>
+                          <SelectItem value="cancelled">Cancel</SelectItem>
                         </SelectContent>
                       </Select>
                     )}
@@ -608,7 +470,7 @@ export default function PrescriptionsPage() {
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8"
-                      onClick={() => deletePrescription.mutate(prescription.id)}
+                      onClick={() => handleDeletePrescription(prescription.id)}
                     >
                       <Trash2 className="h-3 w-3" />
                     </Button>
@@ -627,6 +489,16 @@ export default function PrescriptionsPage() {
             <DialogTitle>Create New Prescription</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="prescription_number">Prescription Number (Optional - will auto-generate if empty)</Label>
+              <Input
+                id="prescription_number"
+                value={formData.prescription_number}
+                onChange={(e) => setFormData({ ...formData, prescription_number: e.target.value })}
+                placeholder="RX-2025-001 (leave empty to auto-generate)"
+              />
+            </div>
+            
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="patient_name">Patient Name</Label>
@@ -638,25 +510,17 @@ export default function PrescriptionsPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="patient_phone">Patient Phone</Label>
+                <Label htmlFor="patient_dob">Patient Date of Birth</Label>
                 <Input
-                  id="patient_phone"
-                  value={formData.patient_phone}
-                  onChange={(e) => setFormData({ ...formData, patient_phone: e.target.value })}
+                  id="patient_dob"
+                  type="date"
+                  value={formData.patient_dob}
+                  onChange={(e) => setFormData({ ...formData, patient_dob: e.target.value })}
                   required
                 />
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="patient_email">Patient Email (Optional)</Label>
-              <Input
-                id="patient_email"
-                type="email"
-                value={formData.patient_email}
-                onChange={(e) => setFormData({ ...formData, patient_email: e.target.value })}
-              />
-            </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -714,7 +578,7 @@ export default function PrescriptionsPage() {
                     <div className="flex-1">
                       <div className="font-medium">{product.name}</div>
                       <div className="text-sm text-muted-foreground">
-                        ${product.price} | Stock: {product.stock}
+                        ₫{parseFloat(product.price).toLocaleString('vi-VN')} | Stock: {product.stock}
                       </div>
                     </div>
                     <Button 
@@ -786,7 +650,7 @@ export default function PrescriptionsPage() {
                         <div>
                           <Label className="text-xs">Subtotal</Label>
                           <div className="text-sm font-medium py-1">
-                            ${(parseFloat(item.price) * item.quantity).toFixed(2)}
+                            ₫{(parseFloat(item.price) * item.quantity).toLocaleString('vi-VN')}
                           </div>
                         </div>
                       </div>
@@ -808,13 +672,13 @@ export default function PrescriptionsPage() {
             )}
 
             <div className="space-y-2">
-              <Label htmlFor="notes">Notes</Label>
+              <Label htmlFor="validation_notes">Validation Notes (Optional)</Label>
               <Textarea
-                id="notes"
-                value={formData.notes}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                id="validation_notes"
+                value={formData.validation_notes}
+                onChange={(e) => setFormData({ ...formData, validation_notes: e.target.value })}
                 rows={3}
-                placeholder="Any special notes or warnings..."
+                placeholder="Optional notes for pharmacist validation..."
               />
             </div>
 
@@ -831,7 +695,7 @@ export default function PrescriptionsPage() {
               </Button>
               <Button 
                 type="submit" 
-                disabled={!formData.patient_name || !formData.doctor_name || prescriptionItems.length === 0 || createPrescription.isPending}
+                disabled={!formData.patient_name || !formData.doctor_name || !formData.patient_dob || !formData.expiry_date || createPrescriptionMutation.isPending}
               >
                 Create Prescription
               </Button>
@@ -852,10 +716,7 @@ export default function PrescriptionsPage() {
                 <div>
                   <Label className="text-sm font-medium text-muted-foreground">Patient</Label>
                   <div className="font-medium">{viewingPrescription.patient_name}</div>
-                  <div className="text-sm text-muted-foreground">{viewingPrescription.patient_phone}</div>
-                  {viewingPrescription.patient_email && (
-                    <div className="text-sm text-muted-foreground">{viewingPrescription.patient_email}</div>
-                  )}
+                  <div className="text-sm text-muted-foreground">DOB: {new Date(viewingPrescription.patient_dob).toLocaleDateString()}</div>
                 </div>
                 <div>
                   <Label className="text-sm font-medium text-muted-foreground">Doctor</Label>
@@ -894,8 +755,8 @@ export default function PrescriptionsPage() {
                   {viewingPrescription.items.map((item) => (
                     <div key={item.id} className="p-3 border rounded">
                       <div className="flex justify-between items-start mb-2">
-                        <div className="font-medium">{item.product_name}</div>
-                        <div className="text-sm text-muted-foreground">Qty: {item.quantity}</div>
+                        <div className="font-medium">{item.medicine_name}</div>
+                        <div className="text-sm text-muted-foreground">Qty: {item.quantity_prescribed}</div>
                       </div>
                       <div className="grid grid-cols-3 gap-2 text-sm">
                         <div>
@@ -918,25 +779,25 @@ export default function PrescriptionsPage() {
                 </div>
               </div>
 
-              {viewingPrescription.notes && (
+              {viewingPrescription.validation_notes && (
                 <div>
-                  <Label className="text-sm font-medium text-muted-foreground">Notes</Label>
+                  <Label className="text-sm font-medium text-muted-foreground">Validation Notes</Label>
                   <div className="mt-1 p-2 bg-muted rounded text-sm">
-                    {viewingPrescription.notes}
+                    {viewingPrescription.validation_notes}
                   </div>
                 </div>
               )}
 
-              {viewingPrescription.dispensed_by && (
+              {viewingPrescription.validated_by_name && (
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label className="text-sm font-medium text-muted-foreground">Dispensed By</Label>
-                    <div className="font-medium">{viewingPrescription.dispensed_by}</div>
+                    <Label className="text-sm font-medium text-muted-foreground">Validated By</Label>
+                    <div className="font-medium">{viewingPrescription.validated_by_name}</div>
                   </div>
                   <div>
-                    <Label className="text-sm font-medium text-muted-foreground">Dispensed Date</Label>
+                    <Label className="text-sm font-medium text-muted-foreground">Validation Date</Label>
                     <div className="font-medium">
-                      {viewingPrescription.dispensed_date && new Date(viewingPrescription.dispensed_date).toLocaleDateString()}
+                      {viewingPrescription.validation_date && new Date(viewingPrescription.validation_date).toLocaleDateString()}
                     </div>
                   </div>
                 </div>
@@ -944,7 +805,7 @@ export default function PrescriptionsPage() {
 
               <div className="flex justify-between items-center p-3 bg-muted rounded font-bold">
                 <span>Total Amount</span>
-                <span>${viewingPrescription.total_amount.toFixed(2)}</span>
+                <span>{viewingPrescription.total_items} items</span>
               </div>
             </div>
           )}
