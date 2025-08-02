@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -46,19 +46,18 @@ import {
   Home
 } from "lucide-react"
 import { Delivery } from "@/lib/types"
+import { 
+  useDeliveries, 
+  useCreateDelivery, 
+  useUpdateDelivery, 
+  useDeleteDelivery, 
+  useScheduleDelivery,
+  useDeliveryStats 
+} from '@/hooks/api/useDeliveries'
+import { useOrders } from '@/hooks/api/useOrders'
+import { useUsers } from '@/hooks/api/useUsers'
 
-interface Staff {
-  id: number
-  first_name: string
-  last_name: string
-  role: string
-}
-
-interface Order {
-  id: number
-  customer_name: string
-  total_amount: number
-}
+// Remove interfaces - using types from API
 
 export default function DeliveriesPage() {
   const [showDialog, setShowDialog] = useState(false)
@@ -77,147 +76,33 @@ export default function DeliveriesPage() {
 
   const queryClient = useQueryClient()
 
-  // Mock data using unified /deliveries/ endpoint structure
-  const { data: deliveries = [] } = useQuery({
-    queryKey: ["deliveries"],
-    queryFn: async () => {
-      // Simulate API call to /deliveries/ endpoint
-      return [
-        {
-          id: 1,
-          order: 1,
-          order_customer_name: "John Doe",
-          order_total: 45.50,
-          delivery_type: "home",
-          status: "scheduled",
-          scheduled_date: "2024-01-20T14:00:00Z",
-          delivery_address: "123 Main St, New York, NY 10001",
-          assigned_staff: 3,
-          assigned_staff_name: "Dr. Sarah Wilson",
-          notes: "Call before delivery"
-        },
-        {
-          id: 2,
-          order: 2,
-          order_customer_name: "Jane Smith",
-          order_total: 67.25,
-          delivery_type: "pickup",
-          status: "in_transit",
-          scheduled_date: "2024-01-19T10:30:00Z",
-          assigned_staff: 4,
-          assigned_staff_name: "Mike Johnson",
-          notes: "Ready for pickup"
-        },
-        {
-          id: 3,
-          order: 3,
-          order_customer_name: "Robert Johnson",
-          order_total: 23.99,
-          delivery_type: "home",
-          status: "delivered",
-          scheduled_date: "2024-01-18T16:00:00Z",
-          delivery_address: "789 Pine St, Queens, NY 11372",
-          assigned_staff: 3,
-          assigned_staff_name: "Dr. Sarah Wilson",
-          notes: "Delivered successfully"
-        }
-      ] as (Delivery & { 
-        order_customer_name: string, 
-        order_total: number, 
-        assigned_staff_name: string 
-      })[]
-    },
-  })
+  // Real API integration
+  const { data: deliveries = [] } = useDeliveries()
+  const { data: deliveryStats } = useDeliveryStats()
+  const { data: orders = [] } = useOrders()
+  const { data: staff = [] } = useUsers()
 
-  const { data: orders = [] } = useQuery({
-    queryKey: ["orders"],
-    queryFn: async () => {
-      // Mock orders data
-      return [
-        { id: 1, customer_name: "John Doe", total_amount: 45.50 },
-        { id: 2, customer_name: "Jane Smith", total_amount: 67.25 },
-        { id: 3, customer_name: "Robert Johnson", total_amount: 23.99 },
-        { id: 4, customer_name: "Alice Brown", total_amount: 89.00 }
-      ] as Order[]
-    },
-  })
+  const createDelivery = useCreateDelivery()
+  
+  // Override success handler for dialog management
+  const handleCreateSuccess = () => {
+    setShowDialog(false)
+    resetForm()
+  }
 
-  const { data: staff = [] } = useQuery({
-    queryKey: ["staff"],
-    queryFn: async () => {
-      // Mock staff data
-      return [
-        { id: 3, first_name: "Dr. Sarah", last_name: "Wilson", role: "pharmacist" },
-        { id: 4, first_name: "Mike", last_name: "Johnson", role: "technician" },
-        { id: 5, first_name: "Lisa", last_name: "Davis", role: "delivery_driver" }
-      ] as Staff[]
-    },
-  })
+  const updateDelivery = useUpdateDelivery()
+  
+  // Override success handler for dialog management
+  const handleUpdateSuccess = () => {
+    setEditingDelivery(null)
+    resetForm()
+  }
 
-  const createDelivery = useMutation({
-    mutationFn: (data: typeof formData) => {
-      // API call to /deliveries/
-      const order = orders.find(o => o.id === parseInt(data.order_id))
-      const assignedStaff = staff.find(s => s.id === parseInt(data.assigned_staff))
-      return Promise.resolve({ 
-        ...data, 
-        id: Date.now(), 
-        order: parseInt(data.order_id),
-        order_customer_name: order?.customer_name || "",
-        order_total: order?.total_amount || 0,
-        assigned_staff: parseInt(data.assigned_staff),
-        assigned_staff_name: assignedStaff ? `${assignedStaff.first_name} ${assignedStaff.last_name}` : "",
-        status: "scheduled"
-      })
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["deliveries"] })
-      setShowDialog(false)
-      resetForm()
-    },
-  })
+  const scheduleDelivery = useScheduleDelivery()
 
-  const updateDelivery = useMutation({
-    mutationFn: ({ id, ...data }: { id: number } & typeof formData) => {
-      // API call to /deliveries/{id}/
-      return Promise.resolve({ id, ...data })
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["deliveries"] })
-      setEditingDelivery(null)
-      resetForm()
-    },
-  })
+  const updateDeliveryStatus = updateDelivery // Use the same hook for status updates
 
-  const scheduleDelivery = useMutation({
-    mutationFn: ({ id, staff_id }: { id: number, staff_id: number }) => {
-      // API call to /deliveries/{id}/schedule/
-      return Promise.resolve()
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["deliveries"] })
-    },
-  })
-
-  const updateDeliveryStatus = useMutation({
-    mutationFn: ({ id, status }: { id: number, status: Delivery["status"] }) => {
-      // API call to /deliveries/{id}/
-      return Promise.resolve()
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["deliveries"] })
-    },
-  })
-
-  const deleteDelivery = useMutation({
-    mutationFn: (id: number) => {
-      // API call to /deliveries/{id}/
-      return Promise.resolve()
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["deliveries"] })
-    },
-  })
+  const deleteDelivery = useDeleteDelivery()
 
   const resetForm = () => {
     setFormData({
@@ -233,33 +118,53 @@ export default function DeliveriesPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (editingDelivery) {
-      updateDelivery.mutate({ id: editingDelivery.id, ...formData })
+      updateDelivery.mutate({ 
+        id: editingDelivery.id, 
+        delivery_type: formData.delivery_type,
+        scheduled_date: formData.scheduled_date,
+        delivery_address: formData.delivery_address,
+        delivery_instructions: formData.notes,
+        assigned_staff: formData.assigned_staff ? parseInt(formData.assigned_staff) : undefined
+      }, {
+        onSuccess: handleUpdateSuccess
+      })
     } else {
-      createDelivery.mutate(formData)
+      createDelivery.mutate({
+        order: parseInt(formData.order_id),
+        delivery_type: formData.delivery_type,
+        scheduled_date: formData.scheduled_date,
+        delivery_address: formData.delivery_address,
+        delivery_instructions: formData.notes,
+        assigned_staff: formData.assigned_staff ? parseInt(formData.assigned_staff) : undefined
+      }, {
+        onSuccess: handleCreateSuccess
+      })
     }
   }
 
-  const handleEdit = (delivery: any) => {
+  const handleEdit = (delivery: Delivery) => {
     setEditingDelivery(delivery)
     setFormData({
-      order_id: delivery.order.toString(),
+      order_id: delivery.order_number || "",
       delivery_type: delivery.delivery_type,
       scheduled_date: delivery.scheduled_date ? new Date(delivery.scheduled_date).toISOString().slice(0, 16) : "",
       delivery_address: delivery.delivery_address || "",
-      assigned_staff: delivery.assigned_staff?.toString() || "",
-      notes: delivery.notes || ""
+      assigned_staff: delivery.assigned_staff ? delivery.assigned_staff.toString() : "",
+      notes: delivery.delivery_instructions || ""
     })
     setShowDialog(true)
   }
 
-  const filteredDeliveries = deliveries.filter((delivery: any) => {
-    const matchesSearch = delivery.order_customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         delivery.id.toString().includes(searchTerm)
+  const filteredDeliveries = deliveries.filter((delivery) => {
+    const matchesSearch = delivery.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         delivery.id.toString().includes(searchTerm) ||
+                         delivery.order_number.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesType = typeFilter === "all" || delivery.delivery_type === typeFilter
     const matchesStatus = statusFilter === "all" || delivery.status === statusFilter
     return matchesSearch && matchesType && matchesStatus
   })
 
+  // Use stats from hook, fallback to manual calculation if not available
   const scheduledDeliveries = deliveries.filter(d => d.status === "scheduled")
   const inTransitDeliveries = deliveries.filter(d => d.status === "in_transit")
   const deliveredDeliveries = deliveries.filter(d => d.status === "delivered")
@@ -310,7 +215,7 @@ export default function DeliveriesPage() {
             <Truck className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{deliveries.length}</div>
+            <div className="text-2xl font-bold">{deliveryStats?.total || deliveries.length}</div>
           </CardContent>
         </Card>
 
@@ -320,7 +225,7 @@ export default function DeliveriesPage() {
             <Home className="h-4 w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-600">{homeDeliveries.length}</div>
+            <div className="text-2xl font-bold text-blue-600">{deliveryStats?.home || homeDeliveries.length}</div>
           </CardContent>
         </Card>
 
@@ -330,7 +235,7 @@ export default function DeliveriesPage() {
             <Package className="h-4 w-4 text-purple-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-purple-600">{pickupDeliveries.length}</div>
+            <div className="text-2xl font-bold text-purple-600">{deliveryStats?.pickup || pickupDeliveries.length}</div>
           </CardContent>
         </Card>
 
@@ -340,7 +245,7 @@ export default function DeliveriesPage() {
             <Truck className="h-4 w-4 text-orange-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-orange-600">{inTransitDeliveries.length}</div>
+            <div className="text-2xl font-bold text-orange-600">{deliveryStats?.inTransit || inTransitDeliveries.length}</div>
           </CardContent>
         </Card>
       </div>
@@ -399,16 +304,16 @@ export default function DeliveriesPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredDeliveries.map((delivery: any) => (
+            {filteredDeliveries.map((delivery) => (
               <TableRow key={delivery.id}>
                 <TableCell>
                   <div className="font-medium">#{delivery.id}</div>
                 </TableCell>
                 <TableCell>
                   <div>
-                    <div className="font-medium">Order #{delivery.order}</div>
+                    <div className="font-medium">{delivery.order_number}</div>
                     <div className="text-sm text-muted-foreground">
-                      {delivery.order_customer_name} - ${delivery.order_total.toFixed(2)}
+                      {delivery.customer_name}
                     </div>
                   </div>
                 </TableCell>
@@ -455,8 +360,10 @@ export default function DeliveriesPage() {
                     {delivery.status !== "delivered" && delivery.status !== "cancelled" && (
                       <Select
                         value={delivery.status}
-                        onValueChange={(status: any) => 
-                          updateDeliveryStatus.mutate({ id: delivery.id, status })
+                        onValueChange={(status: Delivery["status"]) => 
+                          updateDeliveryStatus.mutate({ id: delivery.id, status }, {
+                            onSuccess: () => {}
+                          })
                         }
                       >
                         <SelectTrigger className="w-28 h-8">
@@ -508,7 +415,7 @@ export default function DeliveriesPage() {
                   <SelectContent>
                     {orders.map((order) => (
                       <SelectItem key={order.id} value={order.id.toString()}>
-                        Order #{order.id} - {order.customer_name} (${order.total_amount.toFixed(2)})
+                        Order #{order.id} - {order.customer_name || 'Unknown Customer'} (₫{parseFloat(order.total_amount).toLocaleString('vi-VN')})
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -554,7 +461,7 @@ export default function DeliveriesPage() {
                     <SelectValue placeholder="Select staff member..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {staff.map((member) => (
+                    {staff.filter(member => member.role !== 'customer' && member.role !== 'vip_customer').map((member) => (
                       <SelectItem key={member.id} value={member.id.toString()}>
                         {member.first_name} {member.last_name} ({member.role})
                       </SelectItem>
@@ -578,7 +485,7 @@ export default function DeliveriesPage() {
             )}
 
             <div className="space-y-2">
-              <Label htmlFor="notes">Notes</Label>
+              <Label htmlFor="notes">Delivery Instructions</Label>
               <Textarea
                 id="notes"
                 value={formData.notes}

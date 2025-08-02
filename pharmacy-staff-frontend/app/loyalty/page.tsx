@@ -1,7 +1,6 @@
 "use client"
 
 import { useState } from "react"
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -28,7 +27,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { 
   Award, 
   Plus, 
@@ -38,258 +36,252 @@ import {
   Calendar,
   User,
   TrendingUp,
-  TrendingDown,
   Crown,
-  Gift
+  Gift,
+  AlertCircle,
+  Loader2
 } from "lucide-react"
+import { 
+  useLoyaltyPoints, 
+  useAwardPoints, 
+  useUpdatePoints, 
+  useDeletePoints,
+  useLoyaltyPointsStats
+} from "@/hooks/api/useLoyaltyPoints"
+import { useUsers } from "@/hooks/api/useUsers"
 import { LoyaltyPoints } from "@/lib/types"
-
-interface Customer {
-  id: number
-  first_name: string
-  last_name: string
-  email: string 
-  role: "customer" | "vip_customer"
-  total_points?: number
-}
+import { toast } from "@/hooks/use-toast"
 
 export default function LoyaltyPage() {
   const [showDialog, setShowDialog] = useState(false)
   const [editingPoints, setEditingPoints] = useState<LoyaltyPoints | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
-  const [typeFilter, setTypeFilter] = useState<string>("all")
+  const [statusFilter, setStatusFilter] = useState<string>("all")
   const [formData, setFormData] = useState({
-    user_id: "",
+    customer: "",
     points: "",
-    transaction_type: "earned" as "earned" | "redeemed",
-    description: ""
+    expiry_date: "",
+    transaction_reference: ""
   })
 
-  const queryClient = useQueryClient()
-
-  // Mock data using /loyalty-points/ endpoint structure
-  const { data: loyaltyPoints = [] } = useQuery({
-    queryKey: ["loyalty-points"],
-    queryFn: async () => {
-      // Simulate API call to /loyalty-points/ endpoint
-      return [
-        {
-          id: 1,
-          user: 1,
-          user_name: "John Doe",
-          user_email: "john.doe@email.com",
-          points: 50,
-          earned_date: "2024-01-15T10:30:00Z",
-          transaction_type: "earned",
-          description: "Purchase reward - Order #123"
-        },
-        {
-          id: 2,
-          user: 1,
-          user_name: "John Doe", 
-          user_email: "john.doe@email.com",
-          points: -20,
-          earned_date: "2024-01-16T14:15:00Z",
-          transaction_type: "redeemed",
-          description: "Discount applied - Order #124"
-        },
-        {
-          id: 3,
-          user: 2,
-          user_name: "Jane Smith",
-          user_email: "jane.smith@email.com", 
-          points: 25,
-          earned_date: "2024-01-17T09:45:00Z",
-          transaction_type: "earned",
-          description: "VIP bonus points"
-        },
-        {
-          id: 4,
-          user: 3,
-          user_name: "Robert Johnson",
-          user_email: "robert.j@email.com",
-          points: 75,
-          earned_date: "2024-01-18T16:20:00Z", 
-          transaction_type: "earned",
-          description: "Prescription fill bonus"
-        }
-      ] as (LoyaltyPoints & { user_name: string, user_email: string })[]
-    },
+  // API Hooks
+  const { data: loyaltyPointsResponse, isLoading: isLoadingPoints, error: pointsError } = useLoyaltyPoints({
+    search: searchTerm || undefined,
+    is_expired: statusFilter === "expired" ? true : statusFilter === "active" ? false : undefined,
   })
 
-  const { data: customers = [] } = useQuery({
-    queryKey: ["customers"],
-    queryFn: async () => {
-      // Mock customers data - filtered to only show customers
-      return [
-        {
-          id: 1,
-          first_name: "John",
-          last_name: "Doe", 
-          email: "john.doe@email.com",
-          role: "vip_customer",
-          total_points: 230
-        },
-        {
-          id: 2,
-          first_name: "Jane",
-          last_name: "Smith",
-          email: "jane.smith@email.com", 
-          role: "customer",
-          total_points: 62
-        },
-        {
-          id: 3,
-          first_name: "Robert",
-          last_name: "Johnson",
-          email: "robert.j@email.com",
-          role: "vip_customer", 
-          total_points: 445
-        }
-      ] as Customer[]
-    },
+  const { data: customersResponse, isLoading: isLoadingCustomers } = useUsers({
+    role: "customer,vip_customer" // Get both regular and VIP customers
   })
 
-  const awardPoints = useMutation({
-    mutationFn: (data: typeof formData) => {
-      // API call to /loyalty-points/
-      const customer = customers.find(c => c.id === parseInt(data.user_id))
-      return Promise.resolve({ 
-        ...data, 
-        id: Date.now(),
-        user: parseInt(data.user_id),
-        user_name: customer ? `${customer.first_name} ${customer.last_name}` : "",
-        user_email: customer?.email || "",
-        points: data.transaction_type === "redeemed" ? -parseInt(data.points) : parseInt(data.points),
-        earned_date: new Date().toISOString()
-      })
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["loyalty-points"] })
-      setShowDialog(false)
-      resetForm()
-    },
+  const { data: stats } = useLoyaltyPointsStats()
+
+  const awardPointsMutation = useAwardPoints()
+  const updatePointsMutation = useUpdatePoints()
+  const deletePointsMutation = useDeletePoints()
+
+  // Extract data from API responses
+  const loyaltyPoints = loyaltyPointsResponse?.results || []
+  const customers = customersResponse || []
+
+  // Filter points based on search and status
+  const filteredPoints = loyaltyPoints.filter((points) => {
+    const matchesSearch = !searchTerm || 
+      points.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      points.transaction_reference.toLowerCase().includes(searchTerm.toLowerCase())
+    
+    const matchesStatus = statusFilter === "all" || 
+      (statusFilter === "expired" && points.is_expired) ||
+      (statusFilter === "active" && !points.is_expired)
+    
+    return matchesSearch && matchesStatus
   })
 
-  const updatePoints = useMutation({
-    mutationFn: ({ id, ...data }: { id: number } & typeof formData) => {
-      // API call to /loyalty-points/{id}/
-      return Promise.resolve({ id, ...data })
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["loyalty-points"] })
-      setEditingPoints(null)
-      resetForm()
-    },
-  })
-
-  const deletePoints = useMutation({
-    mutationFn: (id: number) => {
-      // API call to /loyalty-points/{id}/
-      return Promise.resolve()
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["loyalty-points"] })
-    },
-  })
-
-  const resetForm = () => {
-    setFormData({
-      user_id: "",
-      points: "",
-      transaction_type: "earned",
-      description: ""
-    })
-  }
-
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (editingPoints) {
-      updatePoints.mutate({ id: editingPoints.id, ...formData })
-    } else {
-      awardPoints.mutate(formData)
+    
+    if (!formData.customer || !formData.points || !formData.expiry_date || !formData.transaction_reference) {
+      toast({ 
+        title: "Error", 
+        description: "Please fill in all required fields",
+        variant: "destructive" 
+      })
+      return
+    }
+
+    const pointsValue = parseInt(formData.points)
+    if (isNaN(pointsValue) || pointsValue <= 0) {
+      toast({ 
+        title: "Error", 
+        description: "Points must be a positive number",
+        variant: "destructive" 
+      })
+      return
+    }
+
+    try {
+      if (editingPoints) {
+        await updatePointsMutation.mutateAsync({
+          id: editingPoints.id,
+          customer: parseInt(formData.customer),
+          points: pointsValue,
+          expiry_date: formData.expiry_date,
+          transaction_reference: formData.transaction_reference
+        })
+        toast({ title: "Success", description: "Loyalty points updated successfully" })
+      } else {
+        await awardPointsMutation.mutateAsync({
+          customer: parseInt(formData.customer),
+          points: pointsValue,
+          expiry_date: formData.expiry_date,
+          transaction_reference: formData.transaction_reference
+        })
+        toast({ title: "Success", description: "Loyalty points awarded successfully" })
+      }
+      
+      setShowDialog(false)
+      setEditingPoints(null)
+      setFormData({
+        customer: "",
+        points: "",
+        expiry_date: "",
+        transaction_reference: ""
+      })
+    } catch (error: any) {
+      toast({ 
+        title: "Error", 
+        description: error?.message || "Failed to save loyalty points",
+        variant: "destructive" 
+      })
     }
   }
 
-  const handleEdit = (points: any) => {
+  const handleEdit = (points: LoyaltyPoints) => {
     setEditingPoints(points)
     setFormData({
-      user_id: points.user.toString(),
-      points: Math.abs(points.points).toString(),
-      transaction_type: points.transaction_type,
-      description: points.description || ""
+      customer: points.customer.toString(),
+      points: points.points.toString(),
+      expiry_date: points.expiry_date,
+      transaction_reference: points.transaction_reference
     })
     setShowDialog(true)
   }
 
-  const filteredPoints = loyaltyPoints.filter((points: any) => {
-    const matchesSearch = points.user_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         points.user_email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         points.description.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesType = typeFilter === "all" || points.transaction_type === typeFilter
-    return matchesSearch && matchesType
-  })
+  const handleDelete = async (id: number) => {
+    if (confirm("Are you sure you want to delete this loyalty points record?")) {
+      try {
+        await deletePointsMutation.mutateAsync(id)
+        toast({ title: "Success", description: "Loyalty points record deleted successfully" })
+      } catch (error: any) {
+        toast({ 
+          title: "Error", 
+          description: error?.message || "Failed to delete loyalty points record",
+          variant: "destructive" 
+        })
+      }
+    }
+  }
 
-  const totalPointsEarned = loyaltyPoints.filter(p => p.transaction_type === "earned").reduce((sum, p) => sum + Math.abs(p.points), 0)
-  const totalPointsRedeemed = loyaltyPoints.filter(p => p.transaction_type === "redeemed").reduce((sum, p) => sum + Math.abs(p.points), 0)
-  const earnedTransactions = loyaltyPoints.filter(p => p.transaction_type === "earned")
-  const redeemedTransactions = loyaltyPoints.filter(p => p.transaction_type === "redeemed")
+  const openAddDialog = () => {
+    setEditingPoints(null)
+    setFormData({
+      customer: "",
+      points: "",
+      expiry_date: "",
+      transaction_reference: ""
+    })
+    setShowDialog(true)
+  }
+
+  if (pointsError) {
+    return (
+      <div className="container mx-auto p-6">
+        <Card>
+          <CardContent className="flex items-center justify-center p-6">
+            <div className="text-center">
+              <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold mb-2">Failed to load loyalty points</h3>
+              <p className="text-muted-foreground">{pointsError?.message || "Please try again later"}</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   return (
-    <div className="space-y-6">
+    <div className="container mx-auto p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Loyalty Points Management</h1>
-          <p className="text-muted-foreground">
-            Award and manage customer loyalty points and rewards
-          </p>
+          <h1 className="text-3xl font-bold">Loyalty Points Management</h1>
+          <p className="text-muted-foreground">Manage customer loyalty points and rewards</p>
         </div>
-        <Button onClick={() => { resetForm(); setShowDialog(true) }}>
-          <Plus className="h-4 w-4 mr-2" />
+        <Button onClick={openAddDialog} className="flex items-center gap-2">
+          <Plus className="h-4 w-4" />
           Award Points
         </Button>
       </div>
 
-      {/* Stats */}
+      {/* Statistics Cards */}
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Earned</CardTitle>
-            <TrendingUp className="h-4 w-4 text-green-600" />
+            <CardTitle className="text-sm font-medium">Total Point Records</CardTitle>
+            <Gift className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{totalPointsEarned.toLocaleString()}</div>
+            <div className="text-2xl font-bold">
+              {isLoadingPoints ? <Loader2 className="h-6 w-6 animate-spin" /> : (stats?.totalRecords || 0)}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Across all customers
+            </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Redeemed</CardTitle>
-            <TrendingDown className="h-4 w-4 text-red-600" />
+            <CardTitle className="text-sm font-medium">Total Points Awarded</CardTitle>
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-600">{totalPointsRedeemed.toLocaleString()}</div>
+            <div className="text-2xl font-bold">
+              {isLoadingPoints ? <Loader2 className="h-6 w-6 animate-spin" /> : (stats?.totalPoints || 0)}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              All time total
+            </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Earned Transactions</CardTitle>
-            <Award className="h-4 w-4 text-blue-600" />
+            <CardTitle className="text-sm font-medium">Active Points</CardTitle>
+            <Award className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-600">{earnedTransactions.length}</div>
+            <div className="text-2xl font-bold">
+              {isLoadingPoints ? <Loader2 className="h-6 w-6 animate-spin" /> : (stats?.activeCount || 0)}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Non-expired records
+            </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Redemptions</CardTitle>
-            <Gift className="h-4 w-4 text-purple-600" />
+            <CardTitle className="text-sm font-medium">Expired Points</CardTitle>
+            <AlertCircle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-purple-600">{redeemedTransactions.length}</div>
+            <div className="text-2xl font-bold">
+              {isLoadingPoints ? <Loader2 className="h-6 w-6 animate-spin" /> : (stats?.expiredCount || 0)}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Expired records
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -300,27 +292,35 @@ export default function LoyaltyPage() {
           <CardTitle>Customer Points Summary</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 md:grid-cols-3">
-            {customers.map((customer) => (
-              <Card key={customer.id}>
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-medium flex items-center gap-2">
-                        {customer.first_name} {customer.last_name}
-                        {customer.role === "vip_customer" && <Crown className="h-3 w-3 text-yellow-600" />}
+          {isLoadingCustomers ? (
+            <div className="flex items-center justify-center p-6">
+              <Loader2 className="h-6 w-6 animate-spin" />
+            </div>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-3">
+              {stats?.customerSummary?.slice(0, 6).map((customer: any) => (
+                <Card key={customer.customer_id}>
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-medium flex items-center gap-2">
+                          {customer.customer_name}
+                          {customer.has_expired && <AlertCircle className="h-3 w-3 text-yellow-600" />}
+                        </div>
+                        <div className="text-sm text-muted-foreground">
+                          {customer.records_count} records
+                        </div>
                       </div>
-                      <div className="text-sm text-muted-foreground">{customer.email}</div>
+                      <Badge variant="outline" className="text-lg">
+                        <Award className="h-4 w-4 mr-1" />
+                        {customer.total_points}
+                      </Badge>
                     </div>
-                    <Badge variant="outline" className="text-lg">
-                      <Award className="h-4 w-4 mr-1" />
-                      {customer.total_points || 0}
-                    </Badge>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -330,7 +330,7 @@ export default function LoyaltyPage() {
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="Search transactions..."
+              placeholder="Search by customer or transaction reference..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10"
@@ -338,166 +338,189 @@ export default function LoyaltyPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Select value={typeFilter} onValueChange={setTypeFilter}>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-40">
-              <SelectValue placeholder="Filter by type" />
+              <SelectValue placeholder="Filter by status" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Transactions</SelectItem>
-              <SelectItem value="earned">Earned</SelectItem>
-              <SelectItem value="redeemed">Redeemed</SelectItem>
+              <SelectItem value="all">All Points</SelectItem>
+              <SelectItem value="active">Active Points</SelectItem>
+              <SelectItem value="expired">Expired Points</SelectItem>
             </SelectContent>
           </Select>
         </div>
       </div>
 
-      {/* Points Transactions Table */}
+      {/* Points Records Table */}
       <Card>
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Customer</TableHead>
               <TableHead>Points</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>Date</TableHead>
-              <TableHead>Description</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Earned Date</TableHead>
+              <TableHead>Expiry Date</TableHead>
+              <TableHead>Transaction Reference</TableHead>
               <TableHead>Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredPoints.map((points: any) => (
-              <TableRow key={points.id}>
-                <TableCell>
-                  <div>
-                    <div className="font-medium flex items-center gap-2">
-                      <User className="h-3 w-3" />
-                      {points.user_name}
-                    </div>
-                    <div className="text-sm text-muted-foreground">{points.user_email}</div>
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div className={`font-bold ${points.points > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {points.points > 0 ? '+' : ''}{points.points}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <Badge variant={points.transaction_type === 'earned' ? 'default' : 'secondary'}>
-                    {points.transaction_type === 'earned' && <TrendingUp className="h-3 w-3 mr-1" />}
-                    {points.transaction_type === 'redeemed' && <TrendingDown className="h-3 w-3 mr-1" />}
-                    {points.transaction_type.charAt(0).toUpperCase() + points.transaction_type.slice(1)}
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-1 text-sm">
-                    <Calendar className="h-3 w-3" />
-                    {new Date(points.earned_date).toLocaleDateString()}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    {new Date(points.earned_date).toLocaleTimeString()}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div className="text-sm">{points.description}</div>
-                </TableCell>
-                <TableCell>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={() => handleEdit(points)}
-                    >
-                      <Edit className="h-3 w-3" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={() => deletePoints.mutate(points.id)}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  </div>
+            {isLoadingPoints ? (
+              <TableRow>
+                <TableCell colSpan={7} className="text-center p-6">
+                  <Loader2 className="h-6 w-6 animate-spin mx-auto" />
                 </TableCell>
               </TableRow>
-            ))}
+            ) : filteredPoints.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={7} className="text-center p-6 text-muted-foreground">
+                  No loyalty points records found
+                </TableCell>
+              </TableRow>
+            ) : (
+              filteredPoints.map((points) => (
+                <TableRow key={points.id}>
+                  <TableCell>
+                    <div>
+                      <div className="font-medium flex items-center gap-2">
+                        <User className="h-3 w-3" />
+                        {points.customer_name}
+                      </div>
+                      <div className="text-sm text-muted-foreground">ID: {points.customer}</div>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="font-bold text-green-600">
+                      +{points.points}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={points.is_expired ? "destructive" : "default"}>
+                      {points.is_expired ? (
+                        <>
+                          <AlertCircle className="h-3 w-3 mr-1" />
+                          Expired
+                        </>
+                      ) : (
+                        <>
+                          <TrendingUp className="h-3 w-3 mr-1" />
+                          Active
+                        </>
+                      )}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1 text-sm">
+                      <Calendar className="h-3 w-3" />
+                      {new Date(points.earned_date).toLocaleDateString()}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {new Date(points.earned_date).toLocaleTimeString()}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="text-sm">
+                      {new Date(points.expiry_date).toLocaleDateString()}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="text-sm font-mono">
+                      {points.transaction_reference}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleEdit(points)}
+                        disabled={updatePointsMutation.isPending}
+                      >
+                        <Edit className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDelete(points.id)}
+                        disabled={deletePointsMutation.isPending}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
           </TableBody>
         </Table>
       </Card>
 
       {/* Award/Edit Points Dialog */}
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle>
-              {editingPoints ? 'Edit Points Transaction' : 'Award Loyalty Points'}
+              {editingPoints ? "Edit Loyalty Points" : "Award Loyalty Points"}
             </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="user_id">Customer</Label>
-                <Select 
-                  value={formData.user_id} 
-                  onValueChange={(value) => setFormData({ ...formData, user_id: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select customer..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {customers.map((customer) => (
+            <div className="space-y-2">
+              <Label htmlFor="customer">Customer *</Label>
+              <Select
+                value={formData.customer}
+                onValueChange={(value) => setFormData(prev => ({ ...prev, customer: value }))}
+                disabled={!!editingPoints}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a customer" />
+                </SelectTrigger>
+                <SelectContent>
+                  {customers
+                    .filter(customer => customer.role === "customer" || customer.role === "vip_customer")
+                    .map((customer) => (
                       <SelectItem key={customer.id} value={customer.id.toString()}>
                         <div className="flex items-center gap-2">
                           {customer.first_name} {customer.last_name}
                           {customer.role === "vip_customer" && <Crown className="h-3 w-3 text-yellow-600" />}
-                          <span className="text-muted-foreground">({customer.total_points || 0} pts)</span>
                         </div>
                       </SelectItem>
                     ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="transaction_type">Transaction Type</Label>
-                <Select 
-                  value={formData.transaction_type} 
-                  onValueChange={(value: "earned" | "redeemed") => 
-                    setFormData({ ...formData, transaction_type: value })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="earned">Earned Points</SelectItem>
-                    <SelectItem value="redeemed">Redeemed Points</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="points">Points</Label>
+              <Label htmlFor="points">Points *</Label>
               <Input
                 id="points"
                 type="number"
                 min="1"
                 value={formData.points}
-                onChange={(e) => setFormData({ ...formData, points: e.target.value })}
-                placeholder="Enter number of points..."
+                onChange={(e) => setFormData(prev => ({ ...prev, points: e.target.value }))}
+                placeholder="Enter points to award"
                 required
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="description">Description</Label>
-              <Textarea
-                id="description"
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                rows={3}
-                placeholder="Describe the reason for this points transaction..."
+              <Label htmlFor="expiry_date">Expiry Date *</Label>
+              <Input
+                id="expiry_date"
+                type="date"
+                value={formData.expiry_date}
+                onChange={(e) => setFormData(prev => ({ ...prev, expiry_date: e.target.value }))}
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="transaction_reference">Transaction Reference *</Label>
+              <Input
+                id="transaction_reference"
+                value={formData.transaction_reference}
+                onChange={(e) => setFormData(prev => ({ ...prev, transaction_reference: e.target.value }))}
+                placeholder="e.g., ORD-2025-001, PROMO-VIP-AUG"
                 required
               />
             </div>
@@ -506,37 +529,23 @@ export default function LoyaltyPage() {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => {
-                  setShowDialog(false)
-                  setEditingPoints(null)
-                  resetForm()
-                }}
+                onClick={() => setShowDialog(false)}
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={awardPoints.isPending || updatePoints.isPending}>
-                {editingPoints ? 'Update' : 'Award'} Points
+              <Button
+                type="submit"
+                disabled={awardPointsMutation.isPending || updatePointsMutation.isPending}
+              >
+                {(awardPointsMutation.isPending || updatePointsMutation.isPending) && (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                )}
+                {editingPoints ? "Update Points" : "Award Points"}
               </Button>
             </div>
           </form>
         </DialogContent>
       </Dialog>
-
-      {filteredPoints.length === 0 && (
-        <div className="text-center py-12">
-          <Award className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-          <h3 className="text-lg font-semibold mb-2">No point transactions found</h3>
-          <p className="text-muted-foreground mb-4">
-            {searchTerm || typeFilter !== "all" ? "Try adjusting your search terms" : "Get started by awarding points to customers"}
-          </p>
-          {!searchTerm && typeFilter === "all" && (
-            <Button onClick={() => { resetForm(); setShowDialog(true) }}>
-              <Plus className="h-4 w-4 mr-2" />
-              Award Points
-            </Button>
-          )}
-        </div>
-      )}
     </div>
   )
 }

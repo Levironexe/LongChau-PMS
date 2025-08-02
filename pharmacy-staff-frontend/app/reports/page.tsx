@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -44,7 +44,12 @@ import {
   PieChart,
   Activity
 } from "lucide-react"
-import { Report } from "@/lib/types"
+import { Report, CreateReportRequest } from "@/lib/types"
+import { useReports, useGenerateReport, useDeleteReport } from "@/hooks/api/useReports"
+import { useBranches } from "@/hooks/api/useBranches"
+import { useUsers } from "@/hooks/api/useUsers"
+import { TopProductsChart } from "@/components/charts/TopProductsChart"
+import { StaffPerformanceChart } from "@/components/charts/StaffPerformanceChart"
 
 export default function ReportsPage() {
   const [showDialog, setShowDialog] = useState(false)
@@ -52,74 +57,22 @@ export default function ReportsPage() {
   const [typeFilter, setTypeFilter] = useState<string>("all")
   const [activeTab, setActiveTab] = useState("generate")
   const [formData, setFormData] = useState({
-    report_type: "sales" as "sales" | "staff_performance" | "inventory",
-    date_from: "",
-    date_to: "",
-    branch_id: "",
-    staff_id: "",
-    product_category: ""
+    report_name: "",
+    report_type: "sales" as "sales" | "staff_performance" | "inventory" | "prescription",
+    start_date: "",
+    end_date: "",
+    branch: 1,
+    generated_by: 1
   })
 
   const queryClient = useQueryClient()
 
-  // Mock data using /reports/ endpoint structure
-  const { data: reports = [] } = useQuery({
-    queryKey: ["reports"],
-    queryFn: async () => {
-      // Simulate API call to /reports/ endpoint
-      return [
-        {
-          id: 1,
-          report_type: "sales",
-          generated_date: "2024-01-15T10:30:00Z",
-          parameters: {
-            date_from: "2024-01-01",
-            date_to: "2024-01-31",
-            branch_id: 1
-          },
-          data: {
-            total_sales: 15420.50,
-            total_orders: 245,
-            avg_order_value: 62.94,
-            top_products: ["Paracetamol", "Vitamin D", "Antibiotics"]
-          }
-        },
-        {
-          id: 2,
-          report_type: "staff_performance", 
-          generated_date: "2024-01-14T14:15:00Z",
-          parameters: {
-            date_from: "2024-01-01",
-            date_to: "2024-01-31",
-            staff_roles: ["pharmacist", "technician"]
-          },
-          data: {
-            total_staff: 12,
-            performance_scores: {
-              "Dr. Sarah Wilson": 95,
-              "Mike Johnson": 88,
-              "Lisa Davis": 92
-            }
-          }
-        },
-        {
-          id: 3,
-          report_type: "inventory",
-          generated_date: "2024-01-16T09:45:00Z", 
-          parameters: {
-            low_stock_threshold: 10,
-            product_categories: ["medicines", "supplements"]
-          },
-          data: {
-            total_products: 156,
-            low_stock_items: 8,
-            out_of_stock_items: 2,
-            total_value: 45600.75
-          }
-        }
-      ] as Report[]
-    },
-  })
+  // Use real API hooks
+  const { data: reportsResponse, isLoading: reportsLoading, error: reportsError } = useReports()
+  const { data: branches = [] } = useBranches()
+  const { data: users = [] } = useUsers({ role: "pharmacist" })
+  
+  const reports = reportsResponse?.results || []
 
   // Mock chart data
   const salesChartData = {
@@ -145,80 +98,34 @@ export default function ReportsPage() {
     { name: 'John Smith', role: 'Cashier', orders: 67, score: 85, revenue: 4567.80 }
   ]
 
-  const generateReport = useMutation({
-    mutationFn: (data: typeof formData) => {
-      // API call to /reports/{report_type}/
-      return new Promise((resolve) => {
-        setTimeout(() => {
-          resolve({ 
-            ...data, 
-            id: Date.now(), 
-            generated_date: new Date().toISOString(),
-            data: getMockReportData(data.report_type)
-          })
-        }, 2000) // Simulate API delay
-      })
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["reports"] })
-      setShowDialog(false)
-      resetForm()
-    },
-  })
+  const generateReportMutation = useGenerateReport()
+  const deleteReportMutation = useDeleteReport()
 
-  const deleteReport = useMutation({
-    mutationFn: (id: number) => {
-      // API call to /reports/{id}/
-      return Promise.resolve()
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["reports"] })
-    },
-  })
-
-  const getMockReportData = (type: string) => {
-    switch(type) {
-      case 'sales':
-        return {
-          total_sales: Math.floor(Math.random() * 50000) + 10000,
-          total_orders: Math.floor(Math.random() * 500) + 100,
-          avg_order_value: Math.floor(Math.random() * 100) + 30
-        }
-      case 'staff_performance':
-        return {
-          total_staff: Math.floor(Math.random() * 20) + 5,
-          avg_performance: Math.floor(Math.random() * 30) + 70
-        }
-      case 'inventory':
-        return {
-          total_products: Math.floor(Math.random() * 200) + 100,
-          low_stock_items: Math.floor(Math.random() * 20) + 5,
-          total_value: Math.floor(Math.random() * 100000) + 20000
-        }
-      default:
-        return {}
-    }
-  }
 
   const resetForm = () => {
     setFormData({
+      report_name: "",
       report_type: "sales",
-      date_from: "",
-      date_to: "",
-      branch_id: "",
-      staff_id: "",
-      product_category: ""
+      start_date: "",
+      end_date: "",
+      branch: branches.length > 0 ? branches[0].id : 1,
+      generated_by: users.length > 0 ? users[0].id : 1
     })
   }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    generateReport.mutate(formData)
+    if (!formData.report_name.trim()) {
+      alert("Please enter a report name")
+      return
+    }
+    generateReportMutation.mutate(formData)
   }
 
   const filteredReports = reports.filter((report: Report) => {
     const matchesSearch = report.report_type.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         report.id.toString().includes(searchTerm)
+                         report.id.toString().includes(searchTerm) ||
+                         report.report_name.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesType = typeFilter === "all" || report.report_type === typeFilter
     return matchesSearch && matchesType
   })
@@ -314,7 +221,7 @@ export default function ReportsPage() {
 
         {/* Generate Reports Tab */}
         <TabsContent value="generate" className="mt-6">
-          <div className="grid gap-6 md:grid-cols-3">
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
             <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => {
               setFormData({ ...formData, report_type: "sales" })
               setShowDialog(true)
@@ -391,19 +298,16 @@ export default function ReportsPage() {
                             <div className="text-xs text-muted-foreground">{product.sales} units sold</div>
                           </div>
                           <div className="text-right">
-                            <div className="font-medium text-sm">${product.revenue.toFixed(2)}</div>
+                            <div className="font-medium text-sm">₫{product.revenue.toLocaleString('vi-VN')}</div>
                           </div>
                         </div>
                       ))}
                     </div>
                   </div>
                   <div>
-                    <h4 className="font-medium mb-3">Revenue Trends</h4>
-                    <div className="h-40 bg-muted rounded flex items-center justify-center">
-                      <div className="text-center">
-                        <TrendingUp className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-                        <p className="text-sm text-muted-foreground">Chart visualization would go here</p>
-                      </div>
+                    <h4 className="font-medium mb-3">Top Products Performance</h4>
+                    <div className="h-40">
+                      <TopProductsChart data={topProductsData} />
                     </div>
                   </div>
                 </div>
@@ -442,11 +346,17 @@ export default function ReportsPage() {
                             {staff.score}%
                           </div>
                         </TableCell>
-                        <TableCell>${staff.revenue.toFixed(2)}</TableCell>
+                        <TableCell>₫{staff.revenue.toLocaleString('vi-VN')}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
+                <div className="mt-6">
+                  <h4 className="font-medium mb-3">Performance Overview</h4>
+                  <div className="h-[200px]">
+                    <StaffPerformanceChart data={staffPerformanceData} />
+                  </div>
+                </div>
               </CardContent>
             </Card>
           </div>
@@ -517,20 +427,16 @@ export default function ReportsPage() {
                       <TableCell>
                         <div className="flex items-center gap-1 text-sm">
                           <Calendar className="h-3 w-3" />
-                          {new Date(report.generated_date).toLocaleDateString()}
+                          {new Date(report.generated_at).toLocaleDateString()}
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          {new Date(report.generated_date).toLocaleTimeString()}
+                          {new Date(report.generated_at).toLocaleTimeString()}
                         </div>
                       </TableCell>
                       <TableCell>
                         <div className="text-sm">
-                          {report.parameters.date_from && report.parameters.date_to && (
-                            <div>{report.parameters.date_from} to {report.parameters.date_to}</div>
-                          )}
-                          {report.parameters.branch_id && (
-                            <div className="text-muted-foreground">Branch: {report.parameters.branch_id}</div>
-                          )}
+                          <div>{report.start_date} to {report.end_date}</div>
+                          <div className="text-muted-foreground">Branch: {report.branch_name}</div>
                         </div>
                       </TableCell>
                       <TableCell>
@@ -547,7 +453,7 @@ export default function ReportsPage() {
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8"
-                            onClick={() => deleteReport.mutate(report.id)}
+                            onClick={() => deleteReportMutation.mutate(report.id)}
                           >
                             <Trash2 className="h-3 w-3" />
                           </Button>
@@ -574,7 +480,7 @@ export default function ReportsPage() {
                 <Label htmlFor="report_type">Report Type</Label>
                 <Select 
                   value={formData.report_type} 
-                  onValueChange={(value: "sales" | "staff_performance" | "inventory") => 
+                  onValueChange={(value: "sales" | "staff_performance" | "inventory" | "prescription") => 
                     setFormData({ ...formData, report_type: value })
                   }
                 >
@@ -585,23 +491,23 @@ export default function ReportsPage() {
                     <SelectItem value="sales">Sales Report</SelectItem>
                     <SelectItem value="staff_performance">Staff Performance</SelectItem>
                     <SelectItem value="inventory">Inventory Report</SelectItem>
+                    <SelectItem value="prescription">Prescription Report</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="branch_id">Branch (Optional)</Label>
+                <Label htmlFor="branch">Branch</Label>
                 <Select 
-                  value={formData.branch_id} 
-                  onValueChange={(value) => setFormData({ ...formData, branch_id: value })}
+                  value={formData.branch.toString()} 
+                  onValueChange={(value) => setFormData({ ...formData, branch: parseInt(value) })}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="All branches" />
+                    <SelectValue placeholder="Select branch" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">All Branches</SelectItem>
-                    <SelectItem value="1">Main Branch</SelectItem>
-                    <SelectItem value="2">Downtown Branch</SelectItem>
-                    <SelectItem value="3">Mall Branch</SelectItem>
+                    {branches.map((branch: any) => (
+                      <SelectItem key={branch.id} value={branch.id.toString()}>{branch.name}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -609,66 +515,58 @@ export default function ReportsPage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="date_from">From Date</Label>
+                <Label htmlFor="report_name">Report Name</Label>
                 <Input
-                  id="date_from"
-                  type="date"
-                  value={formData.date_from}
-                  onChange={(e) => setFormData({ ...formData, date_from: e.target.value })}
+                  id="report_name"
+                  type="text"
+                  value={formData.report_name}
+                  onChange={(e) => setFormData({ ...formData, report_name: e.target.value })}
+                  placeholder="Enter report name"
                   required
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="date_to">To Date</Label>
+                <Label htmlFor="generated_by">Generated By</Label>
+                <Select value={formData.generated_by.toString()} 
+                  onValueChange={(value) => setFormData({ ...formData, generated_by: parseInt(value) })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select user" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {users.map((user: any) => (
+                      <SelectItem key={user.id} value={user.id.toString()}>
+                        {user.first_name} {user.last_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="start_date">From Date</Label>
                 <Input
-                  id="date_to"
+                  id="start_date"
                   type="date"
-                  value={formData.date_to}
-                  onChange={(e) => setFormData({ ...formData, date_to: e.target.value })}
+                  value={formData.start_date}
+                  onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="end_date">To Date</Label>
+                <Input
+                  id="end_date"
+                  type="date"
+                  value={formData.end_date}
+                  onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
                   required
                 />
               </div>
             </div>
 
-            {formData.report_type === "staff_performance" && (
-              <div className="space-y-2">
-                <Label htmlFor="staff_id">Specific Staff (Optional)</Label>
-                <Select 
-                  value={formData.staff_id} 
-                  onValueChange={(value) => setFormData({ ...formData, staff_id: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="All staff members" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="">All Staff</SelectItem>
-                    <SelectItem value="1">Dr. Sarah Wilson</SelectItem>
-                    <SelectItem value="2">Mike Johnson</SelectItem>
-                    <SelectItem value="3">Lisa Davis</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            {formData.report_type === "inventory" && (
-              <div className="space-y-2">
-                <Label htmlFor="product_category">Product Category (Optional)</Label>
-                <Select 
-                  value={formData.product_category} 
-                  onValueChange={(value) => setFormData({ ...formData, product_category: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="All categories" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="">All Categories</SelectItem>
-                    <SelectItem value="medicines">Medicines</SelectItem>
-                    <SelectItem value="supplements">Supplements</SelectItem>
-                    <SelectItem value="devices">Medical Devices</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
 
             <div className="flex justify-end gap-2 pt-4">
               <Button
@@ -681,8 +579,8 @@ export default function ReportsPage() {
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={generateReport.isPending}>
-                {generateReport.isPending ? 'Generating...' : 'Generate Report'}
+              <Button type="submit" disabled={generateReportMutation.isPending}>
+                {generateReportMutation.isPending ? 'Generating...' : 'Generate Report'}
               </Button>
             </div>
           </form>

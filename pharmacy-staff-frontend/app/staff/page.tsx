@@ -1,7 +1,13 @@
 "use client"
 
 import { useState } from "react"
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { useStaffOnly, useCreateUser, useCreateStaff, useUpdateUser, useDeleteUser, useStaffStats } from "@/hooks/api/useUsers"
+import {
+  useCreateStaffFactory,
+  useCreateUserFactory,
+  useCanCreateUserViaFactory
+} from "@/hooks/api/useUserFactory"
+import { toast } from "@/hooks/use-toast"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -30,6 +36,7 @@ import {
 } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { Switch } from "@/components/ui/switch"
 import { 
   UserCog, 
   Plus, 
@@ -44,14 +51,15 @@ import {
   UserCheck,
   UserX
 } from "lucide-react"
-import { api } from "@/lib/api"
+import { User as UserType } from "@/lib/types"
 
-const roles = [
-  { value: "admin", label: "Administrator", color: "destructive" },
+// Using staff roles from the unified User system
+const staffRoles = [
   { value: "pharmacist", label: "Pharmacist", color: "default" },
   { value: "technician", label: "Pharmacy Technician", color: "secondary" },
   { value: "cashier", label: "Cashier", color: "outline" },
   { value: "manager", label: "Store Manager", color: "default" },
+  { value: "inventory_manager", label: "Inventory Manager", color: "secondary" },
 ]
 
 const permissions = {
@@ -62,23 +70,15 @@ const permissions = {
   manager: ["inventory", "staff", "reports", "customers", "sales"]
 }
 
-interface StaffMember {
-  id: number
-  first_name: string
-  last_name: string
-  email: string
-  phone: string
-  role: string
-  status: "active" | "inactive"
-  hire_date: string
-  notes?: string
-}
+// Using the unified User interface for staff members
+type StaffMember = UserType
 
 export default function StaffPage() {
-  const [showAddDialog, setShowAddDialog] = useState(false)
+  const [showDialog, setShowDialog] = useState(false)
   const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [roleFilter, setRoleFilter] = useState<string>("all")
+  const [useFactoryPattern, setUseFactoryPattern] = useState(false)
   const [formData, setFormData] = useState({
     first_name: "",
     last_name: "",
@@ -89,85 +89,41 @@ export default function StaffPage() {
     notes: ""
   })
 
-  const queryClient = useQueryClient()
-
-  // Mock data - replace with actual API calls
-  const { data: staff = [] } = useQuery({
-    queryKey: ["staff"],
-    queryFn: async () => {
-      // Simulate API call - replace with actual endpoint
-      return [
-        {
-          id: 1,
-          first_name: "John",
-          last_name: "Doe",
-          email: "john.doe@longchau.com",
-          phone: "+1-555-0123",
-          role: "pharmacist",
-          status: "active",
-          hire_date: "2023-01-15",
-          notes: "Senior pharmacist with 5 years experience"
-        },
-        {
-          id: 2,
-          first_name: "Jane",
-          last_name: "Smith",
-          email: "jane.smith@longchau.com",
-          phone: "+1-555-0124",
-          role: "technician",
-          status: "active",
-          hire_date: "2023-03-20",
-          notes: "Handles inventory management"
-        },
-        {
-          id: 3,
-          first_name: "Mike",
-          last_name: "Johnson",
-          email: "mike.johnson@longchau.com",
-          phone: "+1-555-0125",
-          role: "cashier",
-          status: "inactive",
-          hire_date: "2023-06-10",
-          notes: "Part-time evening shift"
-        }
-      ] as StaffMember[]
-    },
-  })
-
-  const createStaff = useMutation({
-    mutationFn: (data: typeof formData) => {
-      // Replace with actual API call
-      return Promise.resolve({ ...data, id: Date.now(), hire_date: new Date().toISOString() })
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["staff"] })
-      setShowAddDialog(false)
-      resetForm()
-    },
-  })
-
-  const updateStaff = useMutation({
-    mutationFn: ({ id, ...data }: { id: number } & typeof formData) => {
-      // Replace with actual API call
-      return Promise.resolve({ id, ...data })
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["staff"] })
-      setEditingStaff(null)
-      resetForm()
-    },
-  })
-
-  const deleteStaff = useMutation({
-    mutationFn: (id: number) => {
-      // Replace with actual API call
-      return Promise.resolve()
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["staff"] })
-    },
-  })
-
+  // Real API calls using separated staff hooks
+  const searchFilters = {
+    ...(searchTerm && { search: searchTerm }),
+    ...(roleFilter !== "all" && { role: roleFilter })
+  }
+  
+  const { data: staff = [] } = useStaffOnly(searchFilters)
+  const staffStats = useStaffStats()
+  
+  // API mutations
+  const createStaffMutation = useCreateStaff()
+  const updateStaffMutation = useUpdateUser()
+  const deleteStaffMutation = useDeleteUser()
+  
+  // Factory pattern hooks
+  const createStaffFactory = useCreateStaffFactory()
+  const createUserFactory = useCreateUserFactory()
+  const { canCreate: canCreateStaffViaFactory } = useCanCreateUserViaFactory(formData.role)
+  
+  // Handle success/error callbacks
+  const handleSuccess = (message: string) => {
+    toast({ title: "Success", description: message })
+    setShowDialog(false)
+    setEditingStaff(null)
+    resetForm()
+  }
+  
+  const handleError = (error: any) => {
+    toast({ 
+      title: "Error", 
+      description: error?.message || "An error occurred",
+      variant: "destructive" 
+    })
+  }
+  
   const resetForm = () => {
     setFormData({
       first_name: "",
@@ -183,9 +139,23 @@ export default function StaffPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (editingStaff) {
-      updateStaff.mutate({ id: editingStaff.id, ...formData })
+      updateStaffMutation.mutate({ id: editingStaff.id, ...formData, role: formData.role as any })
     } else {
-      createStaff.mutate(formData)
+      // Create new staff using factory pattern if enabled and available
+      if (useFactoryPattern && canCreateStaffViaFactory) {
+        const factoryData = {
+          first_name: formData.first_name,
+          last_name: formData.last_name,
+          email: formData.email,
+          phone: formData.phone,
+          address: "",
+          notes: formData.notes,
+          role: formData.role
+        }
+        createStaffFactory.mutate(factoryData)
+      } else {
+        createStaffMutation.mutate({ ...formData, role: formData.role as any })
+      }
     }
   }
 
@@ -197,26 +167,23 @@ export default function StaffPage() {
       email: staffMember.email,
       phone: staffMember.phone,
       role: staffMember.role,
-      status: staffMember.status,
+      status: staffMember.status || "active",
       notes: staffMember.notes || ""
     })
+    setShowDialog(true)
   }
 
-  const filteredStaff = staff.filter((member: StaffMember) => {
-    const matchesSearch = `${member.first_name} ${member.last_name} ${member.email}`.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesRole = roleFilter === "all" || member.role === roleFilter
-    return matchesSearch && matchesRole
-  })
+  // Filtering is now handled by the API hooks
+  const filteredStaff = staff
 
   const getRoleInfo = (role: string) => {
-    return roles.find(r => r.value === role) || roles[0]
+    return staffRoles.find(r => r.value === role) || staffRoles[0]
   }
 
-  const activeStaff = staff.filter((member: StaffMember) => member.status === "active")
-  const inactiveStaff = staff.filter((member: StaffMember) => member.status === "inactive")
 
   return (
     <div className="space-y-6">
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -225,7 +192,7 @@ export default function StaffPage() {
             Manage your pharmacy staff members and their roles
           </p>
         </div>
-        <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+        <Dialog open={showDialog} onOpenChange={setShowDialog}>
           <DialogTrigger asChild>
             <Button onClick={() => resetForm()}>
               <Plus className="h-4 w-4 mr-2" />
@@ -253,7 +220,7 @@ export default function StaffPage() {
             <UserCheck className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{activeStaff.length}</div>
+            <div className="text-2xl font-bold text-green-600">{staffStats.activeStaff}</div>
           </CardContent>
         </Card>
 
@@ -263,7 +230,7 @@ export default function StaffPage() {
             <UserX className="h-4 w-4 text-red-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-600">{inactiveStaff.length}</div>
+            <div className="text-2xl font-bold text-red-600">{staffStats.totalStaff - staffStats.activeStaff}</div>
           </CardContent>
         </Card>
 
@@ -300,7 +267,7 @@ export default function StaffPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Roles</SelectItem>
-              {roles.map((role) => (
+              {staffRoles.map((role) => (
                 <SelectItem key={role.value} value={role.value}>
                   {role.label}
                 </SelectItem>
@@ -358,7 +325,7 @@ export default function StaffPage() {
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    {new Date(member.hire_date).toLocaleDateString()}
+                    {member.hire_date ? new Date(member.hire_date).toLocaleDateString() : 'N/A'}
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-2">
@@ -374,7 +341,7 @@ export default function StaffPage() {
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8"
-                        onClick={() => deleteStaff.mutate(member.id)}
+                        onClick={() => deleteStaffMutation.mutate(member.id)}
                       >
                         <Trash2 className="h-3 w-3" />
                       </Button>
@@ -388,9 +355,9 @@ export default function StaffPage() {
       </Card>
 
       {/* Add/Edit Staff Dialog */}
-      <Dialog open={showAddDialog || !!editingStaff} onOpenChange={(open) => {
+      <Dialog open={showDialog || !!editingStaff} onOpenChange={(open) => {
         if (!open) {
-          setShowAddDialog(false)
+          setShowDialog(false)
           setEditingStaff(null)
           resetForm()
         }
@@ -452,7 +419,7 @@ export default function StaffPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {roles.map((role) => (
+                    {staffRoles.map((role) => (
                       <SelectItem key={role.value} value={role.value}>
                         {role.label}
                       </SelectItem>
@@ -473,6 +440,32 @@ export default function StaffPage() {
                 </Select>
               </div>
             </div>
+            
+            {/* Factory Pattern Toggle - Only show for create mode */}
+            {!editingStaff && canCreateStaffViaFactory && (
+              <div className="border border-dashed border-gray-300 rounded-lg p-4 bg-gray-50/50">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1">
+                    <Label htmlFor="staff-factory-toggle" className="text-sm font-medium text-gray-900">
+                      Use Factory Pattern
+                    </Label>
+                    <p className="text-xs text-gray-500">
+                      Create this {staffRoles.find(r => r.value === formData.role)?.label.toLowerCase()} using the Factory Pattern with enhanced defaults and validation
+                    </p>
+                  </div>
+                  <Switch
+                    id="staff-factory-toggle"
+                    checked={useFactoryPattern}
+                    onCheckedChange={setUseFactoryPattern}
+                  />
+                </div>
+                {useFactoryPattern && (
+                  <div className="mt-3 text-xs text-blue-600 bg-blue-50 px-3 py-2 rounded">
+                    ✨ Factory Pattern enabled - Enhanced creation with role-specific defaults and permissions
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="notes">Notes</Label>
@@ -503,14 +496,14 @@ export default function StaffPage() {
                 type="button"
                 variant="outline"
                 onClick={() => {
-                  setShowAddDialog(false)
+                  setShowDialog(false)
                   setEditingStaff(null)
                   resetForm()
                 }}
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={createStaff.isPending || updateStaff.isPending}>
+              <Button type="submit" disabled={createStaffMutation.isPending || updateStaffMutation.isPending || createStaffFactory.isPending}>
                 {editingStaff ? 'Update' : 'Create'} Staff Member
               </Button>
             </div>
@@ -526,7 +519,7 @@ export default function StaffPage() {
             {searchTerm || roleFilter !== "all" ? "Try adjusting your search terms" : "Get started by adding your first staff member"}
           </p>
           {!searchTerm && roleFilter === "all" && (
-            <Button onClick={() => setShowAddDialog(true)}>
+            <Button onClick={() => setShowDialog(true)}>
               <Plus className="h-4 w-4 mr-2" />
               Add Staff Member
             </Button>
