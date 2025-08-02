@@ -1,4 +1,4 @@
-# api/serializers.py - UPDATED FOR UNIFIED USER SYSTEM
+# api/serializers.py - UPDATED WITH WAREHOUSE SYSTEM + USER ACCOUNTS
 
 from rest_framework import serializers
 from core.models import *
@@ -31,24 +31,128 @@ class BranchConfigurationSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 # ============================================================================
-# UNIFIED USER SYSTEM SERIALIZERS
+# WAREHOUSE SYSTEM SERIALIZERS (NEW)
+# ============================================================================
+
+class WarehouseSerializer(serializers.ModelSerializer):
+    manager_name = serializers.CharField(source='manager.get_display_name', read_only=True)
+    total_stock = serializers.SerializerMethodField()
+    utilization_percentage = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Warehouse
+        fields = '__all__'
+    
+    def get_total_stock(self, obj):
+        return obj.get_total_stock()
+    
+    def get_utilization_percentage(self, obj):
+        return obj.get_utilization_percentage()
+
+class WarehouseInventoryRecordSerializer(serializers.ModelSerializer):
+    warehouse_name = serializers.CharField(source='warehouse.name', read_only=True)
+    product_name = serializers.CharField(source='product.name', read_only=True)
+    product_code = serializers.CharField(source='product.product_code', read_only=True)
+    is_low_stock = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = WarehouseInventoryRecord
+        fields = '__all__'
+    
+    def get_is_low_stock(self, obj):
+        return obj.is_low_stock()
+
+class WarehouseInventoryTransactionSerializer(serializers.ModelSerializer):
+    warehouse_name = serializers.CharField(source='warehouse_record.warehouse.name', read_only=True)
+    product_name = serializers.CharField(source='warehouse_record.product.name', read_only=True)
+    performed_by_name = serializers.CharField(source='performed_by.get_display_name', read_only=True)
+    
+    class Meta:
+        model = WarehouseInventoryTransaction
+        fields = '__all__'
+
+class InventoryTransferSerializer(serializers.ModelSerializer):
+    source_warehouse_name = serializers.CharField(source='source_warehouse.name', read_only=True)
+    destination_branch_name = serializers.CharField(source='destination_branch.name', read_only=True)
+    product_name = serializers.CharField(source='product.name', read_only=True)
+    product_code = serializers.CharField(source='product.product_code', read_only=True)
+    requested_by_name = serializers.CharField(source='requested_by.get_display_name', read_only=True)
+    approved_by_name = serializers.CharField(source='approved_by.get_display_name', read_only=True)
+    can_be_approved = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = InventoryTransfer
+        fields = '__all__'
+    
+    def get_can_be_approved(self, obj):
+        # Check if current user can approve (you'd get this from context)
+        request = self.context.get('request')
+        if request and hasattr(request, 'user'):
+            # This would need to be adapted based on your auth system
+            return obj.status == 'pending'
+        return False
+
+# ============================================================================
+# USER AUTHENTICATION SERIALIZERS (NEW)
+# ============================================================================
+
+class UserAccountSerializer(serializers.ModelSerializer):
+    user_name = serializers.CharField(source='user_profile.get_display_name', read_only=True)
+    user_role = serializers.CharField(source='user_profile.role', read_only=True)
+    is_locked = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = UserAccount
+        fields = [
+            'id', 'username', 'email', 'is_active', 'last_login',
+            'failed_login_attempts', 'password_changed_at', 'created_at',
+            'user_name', 'user_role', 'is_locked'
+        ]
+        extra_kwargs = {
+            'password_hash': {'write_only': True},
+        }
+    
+    def get_is_locked(self, obj):
+        return obj.is_account_locked()
+
+class LoginSerializer(serializers.Serializer):
+    username = serializers.CharField(max_length=150)
+    password = serializers.CharField(max_length=128, write_only=True)
+
+class RegisterUserSerializer(serializers.Serializer):
+    username = serializers.CharField(max_length=150)
+    password = serializers.CharField(max_length=128, write_only=True)
+    email = serializers.EmailField()
+    user_id = serializers.IntegerField()  # Link to existing User
+
+class ChangePasswordSerializer(serializers.Serializer):
+    username = serializers.CharField(max_length=150)
+    old_password = serializers.CharField(max_length=128, write_only=True)
+    new_password = serializers.CharField(max_length=128, write_only=True)
+
+# ============================================================================
+# UNIFIED USER SYSTEM SERIALIZERS (ENHANCED)
 # ============================================================================
 
 class UserSerializer(serializers.ModelSerializer):
     display_name = serializers.CharField(source='get_display_name', read_only=True)
     role_display = serializers.CharField(source='get_role_display', read_only=True)
-    is_staff_member = serializers.CharField(source='is_staff', read_only=True)
-    is_customer_member = serializers.CharField(source='is_customer', read_only=True)
-    can_validate = serializers.CharField(source='can_validate_prescription', read_only=True)
+    is_staff_member = serializers.BooleanField(source='is_staff', read_only=True)
+    is_customer_member = serializers.BooleanField(source='is_customer', read_only=True)
+    can_validate = serializers.BooleanField(source='can_validate_prescription', read_only=True)
+    can_manage_inv = serializers.BooleanField(source='can_manage_inventory', read_only=True)
+    has_account = serializers.SerializerMethodField()
     
     class Meta:
         model = User
         fields = '__all__'
         extra_kwargs = {
-            'password': {'write_only': True},
             'created_at': {'read_only': True},
             'updated_at': {'read_only': True},
         }
+    
+    def get_has_account(self, obj):
+        return hasattr(obj, 'account')
     
     def validate(self, data):
         """Custom validation based on role requirements"""
@@ -93,12 +197,13 @@ class LoyaltyPointSerializer(serializers.ModelSerializer):
         return obj.expiry_date < timezone.now().date()
 
 # ============================================================================
-# PRODUCT SERIALIZERS
+# PRODUCT SERIALIZERS (ENHANCED)
 # ============================================================================
 
 class MedicineSerializer(serializers.ModelSerializer):
     current_stock = serializers.SerializerMethodField()
     is_low_stock = serializers.SerializerMethodField()
+    warehouse_stock = serializers.SerializerMethodField()
     
     class Meta:
         model = Medicine
@@ -123,6 +228,15 @@ class MedicineSerializer(serializers.ModelSerializer):
             except InventoryRecord.DoesNotExist:
                 return False
         return None
+    
+    def get_warehouse_stock(self, obj):
+        """Get total warehouse stock for this product"""
+        try:
+            warehouse_records = WarehouseInventoryRecord.objects.filter(product=obj)
+            total_stock = sum(record.current_stock for record in warehouse_records)
+            return total_stock
+        except:
+            return 0
 
 class PrescriptionMedicineSerializer(serializers.ModelSerializer):
     class Meta:
@@ -152,7 +266,7 @@ class MedicineDatabaseSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 # ============================================================================
-# INVENTORY SERIALIZERS
+# INVENTORY SERIALIZERS (ENHANCED WITH WAREHOUSE INFO)
 # ============================================================================
 
 class InventoryRecordSerializer(serializers.ModelSerializer):
@@ -161,6 +275,8 @@ class InventoryRecordSerializer(serializers.ModelSerializer):
     branch_name = serializers.CharField(source='branch.name', read_only=True)
     is_low_stock = serializers.SerializerMethodField()
     stock_status = serializers.SerializerMethodField()
+    warehouse_availability = serializers.SerializerMethodField()
+    pending_transfers = serializers.SerializerMethodField()
     
     class Meta:
         model = InventoryRecord
@@ -176,9 +292,34 @@ class InventoryRecordSerializer(serializers.ModelSerializer):
             return 'low_stock'
         else:
             return 'in_stock'
+    
+    def get_warehouse_availability(self, obj):
+        """Check warehouse stock for this product"""
+        try:
+            warehouse_records = WarehouseInventoryRecord.objects.filter(product=obj.product)
+            total_available = sum(record.current_stock for record in warehouse_records)
+            return {
+                'total_warehouse_stock': total_available,
+                'can_restock': total_available >= obj.minimum_stock
+            }
+        except:
+            return {'total_warehouse_stock': 0, 'can_restock': False}
+    
+    def get_pending_transfers(self, obj):
+        """Get pending transfers for this product to this branch"""
+        try:
+            transfers = InventoryTransfer.objects.filter(
+                destination_branch=obj.branch,
+                product=obj.product,
+                status__in=['pending', 'approved', 'in_transit']
+            )
+            return transfers.count()
+        except:
+            return 0
 
 class InventoryTransactionSerializer(serializers.ModelSerializer):
     product_name = serializers.CharField(source='inventory_record.product.name', read_only=True)
+    branch_name = serializers.CharField(source='inventory_record.branch.name', read_only=True)
     performed_by_name = serializers.CharField(source='performed_by.get_display_name', read_only=True)
     performed_by_role = serializers.CharField(source='performed_by.role', read_only=True)
     
@@ -187,7 +328,7 @@ class InventoryTransactionSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 # ============================================================================
-# ORDER SYSTEM SERIALIZERS (UNIFIED ORDER MODEL)
+# ORDER SYSTEM SERIALIZERS (ENHANCED)
 # ============================================================================
 
 class OrderItemSerializer(serializers.ModelSerializer):
@@ -214,6 +355,9 @@ class OrderSerializer(serializers.ModelSerializer):
     # Strategy Pattern information  
     calculated_total = serializers.SerializerMethodField()
     processing_strategy = serializers.SerializerMethodField()
+    
+    # Inventory impact information
+    inventory_impact = serializers.SerializerMethodField()
     
     class Meta:
         model = Order
@@ -254,6 +398,31 @@ class OrderSerializer(serializers.ModelSerializer):
                 'order_type': obj.order_type,
                 'requires_validation': obj.order_type == 'prescription',
                 'requires_delivery': obj.order_type == 'online'
+            }
+        return None
+    
+    def get_inventory_impact(self, obj):
+        """Get inventory impact for completed orders"""
+        if obj.status == 'completed':
+            low_stock_created = []
+            for item in obj.items.all():
+                try:
+                    inventory = InventoryRecord.objects.get(
+                        branch=obj.branch,
+                        product=item.product
+                    )
+                    if inventory.current_stock <= inventory.reorder_point:
+                        low_stock_created.append({
+                            'product_name': item.product.name,
+                            'current_stock': inventory.current_stock,
+                            'reorder_point': inventory.reorder_point
+                        })
+                except InventoryRecord.DoesNotExist:
+                    pass
+            
+            return {
+                'created_low_stock_items': len(low_stock_created),
+                'low_stock_details': low_stock_created
             }
         return None
 
@@ -321,7 +490,7 @@ class DeliverySerializer(serializers.ModelSerializer):
         }
 
 # ============================================================================
-# FACTORY AND REPORT SERIALIZERS
+# FACTORY AND REPORT SERIALIZERS (ENHANCED)
 # ============================================================================
 
 class ProductFactorySerializer(serializers.ModelSerializer):
@@ -353,9 +522,69 @@ class ReportGeneratorSerializer(serializers.ModelSerializer):
                 'low_stock_items': data.get('low_stock_items', 0),
                 'total_value': data.get('total_stock_value', 0)
             }
+        elif obj.report_type == 'warehouse':
+            return {
+                'total_warehouses': data.get('total_warehouses', 0),
+                'total_warehouse_stock': data.get('total_warehouse_stock', 0),
+                'total_transfers': data.get('total_transfers', 0)
+            }
         elif obj.report_type == 'staff_performance':
             return {
                 'total_staff': data.get('total_staff', 0),
                 'period': data.get('period', 'N/A')
             }
         return data
+
+# ============================================================================
+# WAREHOUSE OPERATION SERIALIZERS (ADDITIONAL)
+# ============================================================================
+
+class WarehouseStockAddSerializer(serializers.Serializer):
+    """Serializer for adding stock to warehouse"""
+    warehouse_id = serializers.IntegerField()
+    product_id = serializers.IntegerField()
+    quantity = serializers.IntegerField(min_value=1)
+    cost_price = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=0)
+    performed_by_id = serializers.IntegerField()
+    supplier = serializers.CharField(max_length=200, required=False, allow_blank=True)
+    purchase_order_number = serializers.CharField(max_length=50, required=False, allow_blank=True)
+    supplier_reference = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    notes = serializers.CharField(required=False, allow_blank=True)
+
+class TransferRequestSerializer(serializers.Serializer):
+    """Serializer for requesting inventory transfers"""
+    branch_id = serializers.IntegerField()
+    product_id = serializers.IntegerField()
+    quantity = serializers.IntegerField(min_value=1)
+    requested_by_id = serializers.IntegerField()
+    warehouse_id = serializers.IntegerField(required=False)
+    notes = serializers.CharField(required=False, allow_blank=True)
+
+class TransferApprovalSerializer(serializers.Serializer):
+    """Serializer for approving transfers"""
+    approver_id = serializers.IntegerField()
+
+class TransferCompletionSerializer(serializers.Serializer):
+    """Serializer for completing transfers"""
+    receiving_user_id = serializers.IntegerField()
+
+# ============================================================================
+# INVENTORY STATUS SERIALIZERS
+# ============================================================================
+
+class BranchInventoryStatusSerializer(serializers.Serializer):
+    """Comprehensive branch inventory status"""
+    branch = serializers.DictField()
+    inventory_summary = serializers.DictField()
+    low_stock_items = serializers.ListField(child=serializers.DictField())
+    out_of_stock_items = serializers.ListField(child=serializers.DictField())
+    pending_transfers = serializers.ListField(child=serializers.DictField())
+    warehouse_availability = serializers.DictField()
+
+class WarehouseInventoryStatusSerializer(serializers.Serializer):
+    """Comprehensive warehouse inventory status"""
+    warehouse = serializers.DictField()
+    inventory_summary = serializers.DictField()
+    low_stock_items = serializers.ListField(child=serializers.DictField())
+    recent_transactions = serializers.ListField(child=serializers.DictField())
+    pending_transfers = serializers.ListField(child=serializers.DictField())

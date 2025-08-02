@@ -3,6 +3,7 @@
 from django.db import models
 from django.utils import timezone
 from django.core.exceptions import ValidationError
+from datetime import timedelta
 
 # ============================================================================
 # 1. PharmacyBranch and Related Classes
@@ -289,6 +290,7 @@ class InventoryTransaction(models.Model):
         ('stock_out', 'Stock Out'),
         ('adjustment', 'Adjustment'),
         ('expired', 'Expired'),
+        ('transfer_in', 'Transfer In from Warehouse'),
     ]
     
     inventory_record = models.ForeignKey(InventoryRecord, on_delete=models.CASCADE)
@@ -892,3 +894,218 @@ class ReportGenerator(models.Model):
             'period': f"{self.start_date} to {self.end_date}"
         }
         return performance_data
+    
+class Warehouse(models.Model):
+    name = models.CharField(max_length=200)
+    address = models.TextField()
+    manager = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True,
+                               limit_choices_to={'role': 'inventory_manager'})
+    capacity = models.PositiveIntegerField(help_text="Total storage capacity in units")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return self.name
+    
+    def get_total_stock(self):
+        return sum(record.current_stock for record in self.warehouse_inventory.all())
+    
+    def get_utilization_percentage(self):
+        total_stock = self.get_total_stock()
+        return (total_stock / self.capacity * 100) if self.capacity > 0 else 0
+
+class WarehouseInventoryRecord(models.Model):
+    warehouse = models.ForeignKey(Warehouse, on_delete=models.CASCADE, related_name='warehouse_inventory')
+    product = models.ForeignKey(Medicine, on_delete=models.CASCADE)
+    current_stock = models.PositiveIntegerField(default=0)
+    minimum_stock = models.PositiveIntegerField(default=50)
+    reorder_point = models.PositiveIntegerField(default=100)
+    cost_price = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    supplier = models.CharField(max_length=200, blank=True)
+    last_restocked = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        unique_together = ('warehouse', 'product')
+    
+    def __str__(self):
+        return f"{self.warehouse.name} - {self.product.name} ({self.current_stock} units)"
+    
+    def is_low_stock(self):
+        return self.current_stock <= self.reorder_point
+    
+    def can_fulfill_branch_request(self, quantity):
+        return self.current_stock >= quantity
+    
+class WarehouseInventoryTransaction(models.Model):
+    TRANSACTION_TYPES = [
+        ('stock_in', 'Stock In (Purchase)'),
+        ('stock_out', 'Stock Out (Transfer to Branch)'),
+        ('adjustment', 'Adjustment'),
+        ('damaged', 'Damaged/Lost'),
+        ('expired', 'Expired'),
+    ]
+    
+    warehouse_record = models.ForeignKey(WarehouseInventoryRecord, on_delete=models.CASCADE,
+                                       related_name='transactions')
+    transaction_type = models.CharField(max_length=20, choices=TRANSACTION_TYPES)
+    quantity = models.IntegerField()
+    previous_stock = models.PositiveIntegerField()
+    new_stock = models.PositiveIntegerField()
+    unit_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    performed_by = models.ForeignKey(User, on_delete=models.CASCADE,
+                                   limit_choices_to={'role__in': User.STAFF_ROLES})
+    transaction_date = models.DateTimeField(auto_now_add=True)
+    purchase_order_number = models.CharField(max_length=50, blank=True)
+    transfer_reference = models.CharField(max_length=50, blank=True)
+    supplier_reference = models.CharField(max_length=100, blank=True)
+    notes = models.TextField(blank=True)
+    
+    def __str__(self):
+        return f"{self.warehouse_record.warehouse.name} - {self.get_transaction_type_display()} - {self.quantity}"
+    
+class InventoryTransfer(models.Model):
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('approved', 'Approved'),
+        ('in_transit', 'In Transit'),
+        ('completed', 'Completed'),
+        ('cancelled', 'Cancelled'),
+    ]
+    
+    transfer_number = models.CharField(max_length=20, unique=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    source_warehouse = models.ForeignKey(Warehouse, on_delete=models.CASCADE, related_name='outgoing_transfers')
+    destination_branch = models.ForeignKey(PharmacyBranch, on_delete=models.CASCADE, related_name='incoming_transfers')
+    product = models.ForeignKey(Medicine, on_delete=models.CASCADE)
+    quantity = models.PositiveIntegerField()
+    unit_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    requested_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='requested_transfers',
+                                   limit_choices_to={'role__in': ['manager', 'inventory_manager']})
+    approved_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True,
+                                  related_name='approved_transfers',
+                                  limit_choices_to={'role': 'inventory_manager'})
+    request_date = models.DateTimeField(auto_now_add=True)
+    approved_date = models.DateTimeField(null=True, blank=True)
+    shipped_date = models.DateTimeField(null=True, blank=True)
+    received_date = models.DateTimeField(null=True, blank=True)
+    notes = models.TextField(blank=True)
+    
+    def can_approve(self, user):
+        return (user.role == 'inventory_manager' and 
+                user.can_approve_orders and 
+                self.status == 'pending')
+    
+    def approve(self, approver):
+        if not self.can_approve(approver):
+            raise ValueError("Transfer cannot be approved by this user or in current status")
+        
+        warehouse_record = WarehouseInventoryRecord.objects.get(
+            warehouse=self.source_warehouse, product=self.product)
+        if not warehouse_record.can_fulfill_branch_request(self.quantity):
+            raise ValueError(f"Insufficient warehouse stock")
+        
+        self.status = 'approved'
+        self.approved_by = approver
+        self.approved_date = timezone.now()
+        self.save()
+    
+    def complete_transfer(self, receiving_user):
+        if self.status != 'approved':
+            raise ValueError("Transfer must be approved before completion")
+        
+        # Decrease warehouse stock
+        warehouse_record = WarehouseInventoryRecord.objects.get(
+            warehouse=self.source_warehouse, product=self.product)
+        warehouse_record.current_stock -= self.quantity
+        warehouse_record.save()
+        
+        # Create warehouse transaction
+        WarehouseInventoryTransaction.objects.create(
+            warehouse_record=warehouse_record,
+            transaction_type='stock_out',
+            quantity=-self.quantity,
+            previous_stock=warehouse_record.current_stock + self.quantity,
+            new_stock=warehouse_record.current_stock,
+            performed_by=receiving_user,
+            transfer_reference=self.transfer_number,
+            notes=f"Transfer to {self.destination_branch.name}"
+        )
+        
+        # Increase branch stock
+        branch_record, created = InventoryRecord.objects.get_or_create(
+            branch=self.destination_branch, product=self.product,
+            defaults={'current_stock': 0})
+        previous_branch_stock = branch_record.current_stock
+        branch_record.current_stock += self.quantity
+        branch_record.save()
+        
+        # Create branch transaction
+        InventoryTransaction.objects.create(
+            inventory_record=branch_record,
+            transaction_type='stock_in',
+            quantity=self.quantity,
+            previous_stock=previous_branch_stock,
+            new_stock=branch_record.current_stock,
+            performed_by=receiving_user,
+            notes=f"Transfer from warehouse: {self.transfer_number}"
+        )
+        
+        self.status = 'completed'
+        self.received_date = timezone.now()
+        self.save()
+    
+    def __str__(self):
+        return f"{self.transfer_number} - {self.product.name} ({self.quantity} units)"
+    
+class UserAccount(models.Model):
+    username = models.CharField(max_length=150, unique=True)
+    password_hash = models.CharField(max_length=128)
+    email = models.EmailField(unique=True)
+    is_active = models.BooleanField(default=True)
+    last_login = models.DateTimeField(null=True, blank=True)
+    failed_login_attempts = models.PositiveIntegerField(default=0)
+    account_locked_until = models.DateTimeField(null=True, blank=True)
+    password_changed_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    user_profile = models.OneToOneField(User, on_delete=models.CASCADE, 
+                                       related_name='account', null=True, blank=True)
+    
+    def set_password(self, raw_password):
+        from django.contrib.auth.hashers import make_password
+        self.password_hash = make_password(raw_password)
+        self.password_changed_at = timezone.now()
+    
+    def check_password(self, raw_password):
+        from django.contrib.auth.hashers import check_password
+        return check_password(raw_password, self.password_hash)
+    
+    def is_account_locked(self):
+        if self.account_locked_until:
+            return timezone.now() < self.account_locked_until
+        return False
+    
+    @classmethod
+    def authenticate(cls, username, password):
+        try:
+            account = cls.objects.get(username=username, is_active=True)
+            if account.is_account_locked():
+                return None, "Account is temporarily locked"
+            if account.check_password(password):
+                account.last_login = timezone.now()
+                account.failed_login_attempts = 0
+                account.save()
+                return account, "Login successful"
+            else:
+                account.failed_login_attempts += 1
+                if account.failed_login_attempts >= 5:
+                    account.account_locked_until = timezone.now() + timedelta(minutes=30)
+                account.save()
+                return None, "Invalid credentials"
+        except cls.DoesNotExist:
+            return None, "Invalid credentials"
+    
+    def __str__(self):
+        return f"{self.username} ({self.email})"
