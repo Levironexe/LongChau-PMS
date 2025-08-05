@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: pharmacy-poc-backend
+    env: python
+    plan: free
+    buildCommand: ./build.sh
+    startCommand: gunicorn pharmacy_management.wsgi:application
+    autoDeploy: true
+    envVars:
+      - key: DEBUG
+        value: "False"
+      - key: ALLOWED_HOSTS
+        value: pharmacy-poc-backend.onrender.com
+      - key: SECRET_KEY
+        value: replace-this-with-a-safe-secret
+      - key: SUPABASE_DB_PORT
+        value: "5432"
+      - key: DATABASE_URL
+        value: will-be-inferred-or-overridden
+

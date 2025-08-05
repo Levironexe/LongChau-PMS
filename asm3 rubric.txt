@@ -1,0 +1,228 @@
+SWE.A3
+SWE.A3
+Criteria	Ratings	Pts
+This criterion is linked to a learning outcomeI.1.Overall changes
+Overall changes/non-changes (at class
+level)
+10 to >8.0 Pts
+Excellent
+8 to >6.0 Pts
+Very Good
+6 to >4.0 Pts
+Good
+4 to >2.0 Pts
+OK
+2 to >0 Pts
+Bad
+10 pts
+This criterion is linked to a learning outcomeI.2.Changes/non-changes to RC
+Changes/no-changes to Responsibilities and
+Collaborators
+10 to >8.0 Pts
+Excellent
+8 to >6.0 Pts
+Very Good
+6 to >4.0 Pts
+Good
+4 to >2.0 Pts
+OK
+2 to >0 Pts
+Bad
+10 pts
+This criterion is linked to a learning outcomeI.3.Changes/non-changes to Dynamic
+Changes/non-changes to dynamic aspects
+(bootstrap, interaction scenarios)
+10 to >8.0 Pts
+Excellent
+8 to >6.0 Pts
+Very Good
+6 to >4.0 Pts
+Good
+4 to >2.0 Pts
+OK
+2 to >0 Pts
+Bad
+10 pts
+This criterion is linked to a learning outcomeII.1.Good aspects
+5 Pts
+Excellent
+4 Pts
+Very Good
+3 Pts
+Good
+2 Pts
+OK
+1 Pts
+Bad
+5 pts
+This criterion is linked to a learning outcomeII.2.Missing from original design
+5 Pts
+Excellent
+4 Pts
+Very Good
+3 Pts
+Good
+2 Pts
+OK
+1 Pts
+Bad
+5 pts
+This criterion is linked to a learning outcomeII.3.Flawed aspects of original design
+5 Pts
+Excellent
+4 Pts
+Very Good
+3 Pts
+Good
+2 Pts
+OK
+1 Pts
+Bad
+5 pts
+This criterion is linked to a learning outcomeII.4.Level of interpretation required
+5 Pts
+Excellent
+4 Pts
+Very Good
+3 Pts
+Good
+2 Pts
+OK
+1 Pts
+Bad
+5 pts
+This criterion is linked to a learning outcomeIII.1.Lesson Leanrt
+10 to >8.0 Pts
+Excellent
+8 to >6.0 Pts
+Very Good
+6 to >4.0 Pts
+Good
+4 to >2.0 Pts
+OK
+2 to >0 Pts
+Bad
+10 pts
+This criterion is linked to a learning outcomeIV.1.Implementation
+Source code quality, including use of suitable coding standard
+20 to >17.0 Pts
+Excellent
+17 to >15.0 Pts
+Very Good
+15 to >10.0 Pts
+Good
+10 to >5.0 Pts
+Medium
+5 to >0 Pts
+Low
+20 pts
+This criterion is linked to a learning outcomeV.1.Explicit evidence of compilation
+5 Pts
+Excellent
+4 Pts
+Very Good
+3 Pts
+Good
+2 Pts
+OK
+1 Pts
+Bad
+5 pts
+This criterion is linked to a learning outcomeV.2.Illustration of home screen
+1 to >0.8 Pts
+Excellent
+0.8 to >0.6 Pts
+Very Good
+0.6 to >0.4 Pts
+Good
+0.4 to >0.2 Pts
+OK
+0.2 to >0 Pts
+Bad
+1 pts
+This criterion is linked to a learning outcomeV.3.Illustration of successful data input
+9 to >8.0 Pts
+Excellent
+8 to >6.0 Pts
+Very Good
+6 to >4.0 Pts
+Good
+4 to >2.0 Pts
+OK
+2 to >0 Pts
+Bad
+9 pts
+This criterion is linked to a learning outcomeV.4.validate inputs and process inputs
+5 Pts
+Excellent
+4 Pts
+Very Good
+3 Pts
+Good
+2 Pts
+OK
+1 Pts
+Bad
+5 pts
+This criterion is linked to a learning outcomeV.5.illustration of sample outputs
+5 Pts
+Excellent
+4 Pts
+Very Good
+3 Pts
+Good
+2 Pts
+OK
+1 Pts
+Bad
+5 pts
+This criterion is linked to a learning outcomeV.6.exit and test screens
+5 Pts
+Excellent
+4 Pts
+Very Good
+3 Pts
+Good
+2 Pts
+OK
+1 Pts
+Bad
+5 pts
+This criterion is linked to a learning outcomeV.7.Condition
+4 or more scenarios may be needed for
+illustration! (Full marks or deduct points)
+0 Pts
+4 or more
+0 Pts
+Less than 4
+0 pts
+This criterion is linked to a learning outcomeM1
+Cover sheet signed (penalty upto 5 points)
+0 Pts
+Full marks
+0 Pts
+No marks
+0 pts
+This criterion is linked to a learning outcomeM2
+Work sheet (contribution document) completed and signed (otherwise, penalty up to 10 marks)
+0 Pts
+Full marks
+0 Pts
+No marks
+0 pts
+This criterion is linked to a learning outcomeM3
+Assignment 2 attached (otherwise, no reference basis for discussion; penalty up to 60 points, ie, 0 for parts I, II and
+III above)
+0 Pts
+Full marks
+0 Pts
+No marks
+0 pts
+This criterion is linked to a learning outcomeM4. Other
+Format of report: Page number, header/footer,.. (penalty upto 5 points)
+0 Pts
+Full marks
+0 Pts
+No marks
+0 pts
+Total points: 110

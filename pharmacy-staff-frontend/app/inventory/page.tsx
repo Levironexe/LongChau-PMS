@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -44,31 +45,17 @@ import {
   RefreshCw
 } from "lucide-react"
 import { api } from "@/lib/api"
+import { 
+  useInventoryRecords, 
+  useInventoryStats, 
+  useLowStockRecords,
+  useInventoryRecordsByBranch,
+  useBranchInventoryStats
+} from "@/hooks/api/useInventory"
+import { useBranches } from "@/hooks/api/useBranches"
+import type { InventoryRecord, Branch } from "@/lib/types"
 
-interface InventoryItem {
-  id: number
-  product_id: number
-  product_name: string
-  store_id: number
-  store_name: string
-  current_stock: number
-  minimum_stock: number
-  maximum_stock: number
-  last_updated: string
-  supplier: string
-  cost_price: number
-  selling_price: number
-  expiry_date?: string
-  batch_number?: string
-  notes?: string
-}
-
-interface Store {
-  id: number
-  name: string
-  address: string
-  status: "active" | "inactive" | "maintenance"
-}
+// Using real API types - InventoryRecord and Branch from types.ts
 
 interface Product {
   id: number
@@ -78,24 +65,21 @@ interface Product {
 }
 
 export default function InventoryPage() {
-  const [selectedStore, setSelectedStore] = useState<string>("")
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const [selectedBranch, setSelectedBranch] = useState<string>("")
   const [showDialog, setShowDialog] = useState(false)
   const [showRequestDialog, setShowRequestDialog] = useState(false)
-  const [editingItem, setEditingItem] = useState<InventoryItem | null>(null)
-  const [requestingItem, setRequestingItem] = useState<InventoryItem | null>(null)
+  const [editingItem, setEditingItem] = useState<InventoryRecord | null>(null)
+  const [requestingItem, setRequestingItem] = useState<InventoryRecord | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [stockFilter, setStockFilter] = useState<string>("all")
   const [formData, setFormData] = useState({
     product_id: "",
+    branch_id: "",
     current_stock: "",
     minimum_stock: "",
-    maximum_stock: "",
-    supplier: "",
-    cost_price: "",
-    selling_price: "",
-    expiry_date: "",
-    batch_number: "",
-    notes: ""
+    reorder_point: ""
   })
   const [requestData, setRequestData] = useState({
     product_id: "",
@@ -107,115 +91,92 @@ export default function InventoryPage() {
 
   const queryClient = useQueryClient()
 
-  // Mock data - replace with actual API calls
-  const { data: inventory = [] } = useQuery({
-    queryKey: ["inventory"],
-    queryFn: async () => {
-      // Simulate API call - replace with actual endpoint
-      return [
-        {
-          id: 1,
-          product_id: 1,
-          product_name: "Paracetamol 500mg",
-          store_id: 1,
-          store_name: "Long Chau - District 1",
-          current_stock: 45,
-          minimum_stock: 50,
-          maximum_stock: 200,
-          last_updated: "2024-01-20T10:30:00Z",
-          supplier: "PharmaCorp Vietnam",
-          cost_price: 4.50,
-          selling_price: 5.99,
-          expiry_date: "2025-12-31",
-          batch_number: "PC240115",
-          notes: "Low stock - reorder soon"
-        },
-        {
-          id: 2,
-          product_id: 2,
-          product_name: "Amoxicillin 250mg",
-          store_id: 1,
-          store_name: "Long Chau - District 1",
-          current_stock: 75,
-          minimum_stock: 30,
-          maximum_stock: 150,
-          last_updated: "2024-01-19T14:15:00Z",
-          supplier: "MediLabs International",
-          cost_price: 10.00,
-          selling_price: 12.50,
-          expiry_date: "2025-08-15",
-          batch_number: "ML240110"
-        },
-        {
-          id: 3,
-          product_id: 3,
-          product_name: "Vitamin D3 1000IU",
-          store_id: 2,
-          store_name: "Long Chau - District 3",
-          current_stock: 120,
-          minimum_stock: 40,
-          maximum_stock: 200,
-          last_updated: "2024-01-18T09:00:00Z",
-          supplier: "HealthPlus Supplements",
-          cost_price: 14.40,
-          selling_price: 18.00,
-          expiry_date: "2026-06-30",
-          batch_number: "HP240105"
-        },
-        {
-          id: 4,
-          product_id: 1,
-          product_name: "Paracetamol 500mg",
-          store_id: 2,
-          store_name: "Long Chau - District 3",
-          current_stock: 25,
-          minimum_stock: 50,
-          maximum_stock: 200,
-          last_updated: "2024-01-20T16:45:00Z",
-          supplier: "PharmaCorp Vietnam",
-          cost_price: 4.50,
-          selling_price: 5.99,
-          expiry_date: "2025-12-31",
-          batch_number: "PC240116",
-          notes: "Critical low stock"
-        },
-        {
-          id: 5,
-          product_id: 2,
-          product_name: "Amoxicillin 250mg",
-          store_id: 4,
-          store_name: "Long Chau - Thu Duc",
-          current_stock: 90,
-          minimum_stock: 30,
-          maximum_stock: 150,
-          last_updated: "2024-01-17T11:20:00Z",
-          supplier: "MediLabs International",
-          cost_price: 10.00,
-          selling_price: 12.50,
-          expiry_date: "2025-09-20",
-          batch_number: "ML240112"
-        }
-      ] as InventoryItem[]
-    },
-  })
+  // Get branches data first
+  const { data: branches = [], isLoading: branchesLoading, error: branchesError } = useBranches()
 
-  const { data: stores = [] } = useQuery({
-    queryKey: ["stores"],
-    queryFn: async () => {
-      // Use same mock data as stores page
-      return [
-        { id: 1, name: "Long Chau - District 1", address: "123 Nguyen Hue Street", status: "active" },
-        { id: 2, name: "Long Chau - District 3", address: "456 Vo Van Tan Street", status: "active" },
-        { id: 3, name: "Long Chau - Tan Binh", address: "789 Cong Hoa Street", status: "maintenance" },
-        { id: 4, name: "Long Chau - Thu Duc", address: "321 Vo Van Ngan Street", status: "active" }
-      ] as Store[]
-    },
-  })
+  // Update URL when branch selection changes
+  const handleBranchChange = useCallback((branchId: string) => {
+    console.log('Branch change requested:', { from: selectedBranch, to: branchId })
+    
+    // Invalidate existing queries to force fresh data
+    if (selectedBranch !== branchId) {
+      queryClient.invalidateQueries({ queryKey: ['inventory'] })
+      queryClient.invalidateQueries({ queryKey: ['inventory', 'records'] })
+    }
+    
+    setSelectedBranch(branchId)
+    if (branchId) {
+      router.push(`/inventory?branchId=${branchId}`)
+    } else {
+      router.push('/inventory')
+    }
+  }, [router, selectedBranch, queryClient])
 
+  // Sync URL parameters with selected branch
+  useEffect(() => {
+    const branchParam = searchParams.get('branchId')
+    if (branchParam && branchParam !== selectedBranch) {
+      setSelectedBranch(branchParam)
+    }
+  }, [searchParams, selectedBranch])
+
+  // Validate branch ID exists in available branches
+  useEffect(() => {
+    if (selectedBranch && branches.length > 0) {
+      const branchExists = branches.some(branch => branch.id.toString() === selectedBranch)
+      if (!branchExists) {
+        console.warn(`Branch ID ${selectedBranch} not found, redirecting to branch selection`)
+        handleBranchChange("")
+      }
+    }
+  }, [selectedBranch, branches, handleBranchChange])
+
+  // Real API hooks - only call the one we need
+  const branchId = selectedBranch ? parseInt(selectedBranch) : 0
+  const allInventoryQuery = useInventoryRecords()
+  const branchInventoryQuery = useInventoryRecordsByBranch(branchId)
+  
+  // Use the appropriate query based on selectedBranch
+  const inventoryQuery = selectedBranch && branchId > 0 ? branchInventoryQuery : allInventoryQuery
+  const { data: inventory = [], isLoading: inventoryLoading, error: inventoryError } = inventoryQuery
+  
+  // Debug logging to see what's happening
+  console.log('Inventory Debug:', {
+    selectedBranch,
+    branchId,
+    usingBranchQuery: selectedBranch && branchId > 0,
+    inventoryCount: inventory.length,
+    allQueryEnabled: !selectedBranch || branchId === 0,
+    branchQueryEnabled: !!(selectedBranch && branchId > 0),
+    allQueryData: allInventoryQuery.data?.length || 0,
+    branchQueryData: branchInventoryQuery.data?.length || 0,
+    allQueryStatus: allInventoryQuery.status,
+    branchQueryStatus: branchInventoryQuery.status,
+    inventoryFirstItem: inventory[0] // First item for debugging
+  })
+  const { data: globalLowStockItems = [] } = useLowStockRecords()
+  const globalInventoryStats = useInventoryStats()
+  const branchInventoryStats = useBranchInventoryStats(branchId)
+  
+  // Use branch-specific stats when a branch is selected, otherwise global stats
+  const inventoryStats = selectedBranch && branchId > 0 ? branchInventoryStats : globalInventoryStats
+
+  const selectedBranchName = branches.find(b => b.id.toString() === selectedBranch)?.name || "Selected Branch"
+  
+  // Update page title when branch is selected
+  useEffect(() => {
+    if (selectedBranch && selectedBranchName !== "Selected Branch") {
+      document.title = `Inventory - ${selectedBranchName} | Long Chau PMS`
+    } else {
+      document.title = `Inventory | Long Chau PMS`
+    }
+  }, [selectedBranch, selectedBranchName])
+
+  // TODO: Replace with useProducts() hook when available
   const { data: products = [] } = useQuery({
     queryKey: ["products"],
     queryFn: async () => {
-      // Use same mock data as products page
+      // Temporary - will be replaced with real products API
       return [
         { id: 1, name: "Paracetamol 500mg", product_type: "medicine", requires_prescription: false },
         { id: 2, name: "Amoxicillin 250mg", product_type: "medicine", requires_prescription: true },
@@ -224,42 +185,38 @@ export default function InventoryPage() {
     },
   })
 
-  const createInventoryItem = useMutation({
-    mutationFn: (data: typeof formData) => {
-      // Replace with actual API call
-      const product = products.find(p => p.id === parseInt(data.product_id))
-      const store = stores.find(s => s.id === parseInt(selectedStore))
-      return Promise.resolve({ 
-        ...data, 
-        id: Date.now(),
-        product_id: parseInt(data.product_id),
-        product_name: product?.name || "",
-        store_id: parseInt(selectedStore),
-        store_name: store?.name || "",
+  const updateInventoryItem = useMutation({
+    mutationFn: async ({ id, ...data }: { id: number } & typeof formData) => {
+      // Call actual API endpoint for update
+      const payload = {
+        product: parseInt(data.product_id) || editingItem?.product,
+        branch: parseInt(data.branch_id) || editingItem?.branch,
         current_stock: parseInt(data.current_stock),
         minimum_stock: parseInt(data.minimum_stock),
-        maximum_stock: parseInt(data.maximum_stock),
-        cost_price: parseFloat(data.cost_price),
-        selling_price: parseFloat(data.selling_price),
-        last_updated: new Date().toISOString()
-      })
+        reorder_point: data.reorder_point ? parseInt(data.reorder_point) : undefined
+      }
+      
+      const response = await api.put(`/inventory-records/${id}/`, payload)
+      return response.data
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["inventory", selectedStore] })
+      queryClient.invalidateQueries({ queryKey: ["inventory"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory", "records"] })
       setShowDialog(false)
+      setEditingItem(null)
       resetForm()
     },
   })
 
   const requestStock = useMutation({
-    mutationFn: (data: typeof requestData & { item: InventoryItem }) => {
+    mutationFn: (data: typeof requestData & { item: InventoryRecord }) => {
       // Replace with actual API call
       return Promise.resolve({
         id: Date.now(),
-        store_id: parseInt(selectedStore),
-        store_name: data.item.store_name,
+        branch_id: parseInt(selectedBranch),
+        branch_name: branches.find(b => b.id === data.item.branch)?.name || "",
         product_id: parseInt(data.product_id),
-        product_name: data.item.product_name,
+        product_name: data.item.product_name || "",
         requested_quantity: parseInt(data.requested_quantity),
         current_stock: data.item.current_stock,
         minimum_stock: data.item.minimum_stock,
@@ -279,49 +236,24 @@ export default function InventoryPage() {
     },
   })
 
-  const updateInventoryItem = useMutation({
-    mutationFn: ({ id, ...data }: { id: number } & typeof formData) => {
-      // Replace with actual API call
-      return Promise.resolve({ 
-        id, 
-        ...data,
-        current_stock: parseInt(data.current_stock),
-        minimum_stock: parseInt(data.minimum_stock),
-        maximum_stock: parseInt(data.maximum_stock),
-        cost_price: parseFloat(data.cost_price),
-        selling_price: parseFloat(data.selling_price),
-        last_updated: new Date().toISOString()
-      })
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["inventory", selectedStore] })
-      setEditingItem(null)
-      resetForm()
-    },
-  })
-
   const deleteInventoryItem = useMutation({
     mutationFn: (id: number) => {
       // Replace with actual API call
       return Promise.resolve()
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["inventory", selectedStore] })
+      queryClient.invalidateQueries({ queryKey: ["inventory"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory", "records"] })
     },
   })
 
   const resetForm = () => {
     setFormData({
       product_id: "",
+      branch_id: "",
       current_stock: "",
       minimum_stock: "",
-      maximum_stock: "",
-      supplier: "",
-      cost_price: "",
-      selling_price: "",
-      expiry_date: "",
-      batch_number: "",
-      notes: ""
+      reorder_point: ""
     })
   }
 
@@ -339,8 +271,6 @@ export default function InventoryPage() {
     e.preventDefault()
     if (editingItem) {
       updateInventoryItem.mutate({ id: editingItem.id, ...formData })
-    } else {
-      createInventoryItem.mutate(formData)
     }
   }
 
@@ -351,66 +281,76 @@ export default function InventoryPage() {
     }
   }
 
-  const handleEdit = (item: InventoryItem) => {
+  const handleEdit = (item: InventoryRecord) => {
     setEditingItem(item)
     setFormData({
-      product_id: item.product_id.toString(),
-      current_stock: item.current_stock.toString(),
-      minimum_stock: item.minimum_stock.toString(),
-      maximum_stock: item.maximum_stock.toString(),
-      supplier: item.supplier,
-      cost_price: item.cost_price.toString(),
-      selling_price: item.selling_price.toString(),
-      expiry_date: item.expiry_date || "",
-      batch_number: item.batch_number || "",
-      notes: item.notes || ""
+      product_id: (item.product || 0).toString(),
+      branch_id: item.branch.toString(),
+      current_stock: (item.current_stock || 0).toString(),
+      minimum_stock: (item.minimum_stock || 0).toString(),
+      reorder_point: (item.reorder_point || 0).toString()
     })
     setShowDialog(true)
   }
 
-  const handleRequestStock = (item: InventoryItem) => {
+  const handleRequestStock = (item: InventoryRecord) => {
     setRequestingItem(item)
+    const currentStock = item.current_stock || 0
+    const minStock = item.minimum_stock || 0
+    const reorderPoint = item.reorder_point || (minStock * 2) // Default to 2x minimum if no reorder point
+    
     setRequestData({
-      product_id: item.product_id.toString(),
-      requested_quantity: (item.maximum_stock - item.current_stock).toString(),
-      priority: item.current_stock <= item.minimum_stock ? "high" : "normal",
-      reason: item.current_stock <= item.minimum_stock ? "Low stock alert" : "Restock request",
+      product_id: (item.product || 0).toString(),
+      requested_quantity: Math.max(reorderPoint - currentStock, minStock).toString(),
+      priority: item.is_low_stock ? "high" : "normal",
+      reason: item.is_low_stock ? "Low stock alert" : "Restock request",
       notes: ""
     })
     setShowRequestDialog(true)
   }
 
-  // Filter inventory by selected store
-  const storeInventory = inventory.filter(item => 
-    !selectedStore || item.store_id.toString() === selectedStore
-  )
+  // inventory is already filtered by the API query (either all or by branch)
+  const currentInventory = inventory
 
-  const filteredInventory = storeInventory.filter((item: InventoryItem) => {
-    const matchesSearch = item.product_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         item.supplier.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         item.batch_number?.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredInventory = currentInventory.filter((item: InventoryRecord) => {
+    const matchesSearch = (item.product_name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         (item.supplier || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         (item.batch_number || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         (item.product_code || "").toLowerCase().includes(searchTerm.toLowerCase())
+    
+    const currentStock = item.current_stock || 0
+    const minStock = item.minimum_stock || 0
+    const reorderPoint = item.reorder_point || 0
+    
     const matchesStock = stockFilter === "all" || 
-                        (stockFilter === "low" && item.current_stock <= item.minimum_stock) ||
-                        (stockFilter === "normal" && item.current_stock > item.minimum_stock && item.current_stock < item.maximum_stock) ||
-                        (stockFilter === "high" && item.current_stock >= item.maximum_stock)
+                        (stockFilter === "low" && (item.is_low_stock || currentStock <= minStock)) ||
+                        (stockFilter === "normal" && !item.is_low_stock && currentStock > minStock) ||
+                        (stockFilter === "high" && currentStock >= reorderPoint && reorderPoint > 0)
     return matchesSearch && matchesStock
   })
 
-  const lowStockItems = storeInventory.filter(item => item.current_stock <= item.minimum_stock)
-  const totalItems = storeInventory.length
-  const totalValue = storeInventory.reduce((sum, item) => sum + (item.current_stock * item.cost_price), 0)
-  const averageStock = storeInventory.length > 0 ? storeInventory.reduce((sum, item) => sum + item.current_stock, 0) / storeInventory.length : 0
+  // Use branch-specific stats when available, otherwise calculate from current inventory
+  const stats = inventoryStats
+  const lowStockItems = currentInventory.filter(item => item.is_low_stock)
+  const totalItems = stats.totalRecords || currentInventory.length
+  const totalProducts = currentInventory.length > 0 ? new Set(currentInventory.map(item => item.product)).size : 0
+  const averageStock = stats.averageStockLevel || (currentInventory.length > 0 ? 
+    currentInventory.reduce((sum, item) => sum + (item.current_stock || 0), 0) / currentInventory.length : 0)
 
-  const getStockStatus = (item: InventoryItem) => {
-    if (item.current_stock <= item.minimum_stock) return "low"
-    if (item.current_stock >= item.maximum_stock) return "high"
+  const getStockStatus = (item: InventoryRecord) => {
+    const currentStock = item.current_stock || 0
+    const minStock = item.minimum_stock || 0
+    const reorderPoint = item.reorder_point || 0
+    
+    if (item.is_low_stock || currentStock <= minStock) return "low"
+    if (currentStock >= reorderPoint && reorderPoint > 0) return "reorder"
     return "normal"
   }
 
   const getStockBadgeVariant = (status: string) => {
     switch (status) {
       case "low": return "destructive"
-      case "high": return "secondary"
+      case "reorder": return "secondary"
       case "normal": return "default"
       default: return "default"
     }
@@ -419,14 +359,14 @@ export default function InventoryPage() {
   const getStockIcon = (status: string) => {
     switch (status) {
       case "low": return <TrendingDown className="h-3 w-3" />
-      case "high": return <TrendingUp className="h-3 w-3" />
+      case "reorder": return <AlertTriangle className="h-3 w-3" />
       case "normal": return <Package className="h-3 w-3" />
       default: return <Package className="h-3 w-3" />
     }
   }
 
-  // Don't show inventory if no store is selected
-  if (!selectedStore) {
+  // Don't show inventory if no branch is selected
+  if (!selectedBranch) {
     return (
       <div className="space-y-6">
         {/* Header */}
@@ -446,30 +386,47 @@ export default function InventoryPage() {
           <p className="text-muted-foreground mb-8">
             Select a Long Chau pharmacy branch to view and manage its inventory
           </p>
-          <div className="grid gap-4 md:grid-cols-2">
-            {stores.filter(store => store.status === "active").map((store) => (
-              <Card key={store.id} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setSelectedStore(store.id.toString())}>
-                <CardContent className="p-6">
-                  <div className="flex items-center gap-3 mb-3">
-                    <Store className="h-8 w-8 text-blue-600" />
-                    <div className="text-left">
-                      <h3 className="font-semibold text-lg">{store.name}</h3>
-                      <p className="text-sm text-muted-foreground">{store.address}</p>
+          
+          {branchesLoading ? (
+            <div className="text-center py-8">Loading branches...</div>
+          ) : branchesError ? (
+            <div className="text-center py-8">
+              <div className="text-red-600 mb-4">Error loading branches</div>
+              <p className="text-sm text-muted-foreground">
+                {branchesError.message || 'Unable to fetch branches from the API'}
+              </p>
+            </div>
+          ) : branches.length === 0 ? (
+            <div className="text-center py-8">
+              <div className="text-yellow-600 mb-4">No branches found</div>
+              <p className="text-sm text-muted-foreground">
+                There are no branches available in the system. Please add branches first.
+              </p>
+            </div>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2">
+              {branches.map((branch) => (
+                <Card key={branch.id} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleBranchChange(branch.id.toString())}>
+                  <CardContent className="p-6">
+                    <div className="flex items-center gap-3 mb-3">
+                      <Store className="h-8 w-8 text-blue-600" />
+                      <div className="text-left">
+                        <h3 className="font-semibold text-lg">{branch.name}</h3>
+                        <p className="text-sm text-muted-foreground">{branch.address}</p>
+                      </div>
                     </div>
-                  </div>
-                  <Button className="w-full">
-                    View Inventory
-                  </Button>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+                    <Button className="w-full">
+                      View Inventory
+                    </Button>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     )
   }
-
-  const selectedStoreName = stores.find(s => s.id.toString() === selectedStore)?.name || "Selected Store"
 
   return (
     <div className="space-y-6">
@@ -478,23 +435,22 @@ export default function InventoryPage() {
         <div className="flex items-center gap-4">
           <Button 
             variant="outline" 
-            onClick={() => setSelectedStore("")}
+            onClick={() => handleBranchChange("")}
             className="flex items-center gap-2"
           >
             <Store className="h-4 w-4" />
             Change Branch
           </Button>
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">{selectedStoreName}</h1>
+            <h1 className="text-3xl font-bold tracking-tight">{selectedBranchName}</h1>
             <p className="text-muted-foreground">
               Managing inventory for this branch location
             </p>
           </div>
         </div>
-        <Button onClick={() => { resetForm(); setShowDialog(true) }} disabled={!selectedStore}>
-          <Plus className="h-4 w-4 mr-2" />
-          Add Inventory Item
-        </Button>
+        <div className="text-sm text-muted-foreground">
+          All products have inventory records. Click "Edit" on any item to update stock levels.
+        </div>
       </div>
 
       {/* Stats */}
@@ -521,11 +477,11 @@ export default function InventoryPage() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Value</CardTitle>
+            <CardTitle className="text-sm font-medium">Unique Products</CardTitle>
             <Package className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">${totalValue.toFixed(2)}</div>
+            <div className="text-2xl font-bold text-green-600">{totalProducts}</div>
           </CardContent>
         </Card>
 
@@ -555,7 +511,7 @@ export default function InventoryPage() {
                 <div key={item.id} className="flex justify-between items-center p-2 bg-white rounded border">
                   <div>
                     <div className="font-medium text-sm">{item.product_name}</div>
-                    <div className="text-xs text-muted-foreground">{item.store_name}</div>
+                    <div className="text-xs text-muted-foreground">{item.branch_name}</div>
                   </div>
                   <div className="text-red-600 font-semibold text-sm">
                     {item.current_stock}/{item.minimum_stock}
@@ -589,7 +545,7 @@ export default function InventoryPage() {
               <SelectItem value="all">All Levels</SelectItem>
               <SelectItem value="low">Low Stock</SelectItem>
               <SelectItem value="normal">Normal</SelectItem>
-              <SelectItem value="high">High Stock</SelectItem>
+              <SelectItem value="high">Ready to Reorder</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -601,9 +557,9 @@ export default function InventoryPage() {
           <TableHeader>
             <TableRow>
               <TableHead>Product</TableHead>
-              <TableHead>Stock Level</TableHead>
-              <TableHead>Pricing</TableHead>
-              <TableHead>Supplier</TableHead>
+              <TableHead>Stock Information</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Branch</TableHead>
               <TableHead>Last Updated</TableHead>
               <TableHead>Actions</TableHead>
             </TableRow>
@@ -611,7 +567,7 @@ export default function InventoryPage() {
           <TableBody>
             {filteredInventory.map((item) => {
               const stockStatus = getStockStatus(item)
-              const isLowStock = item.current_stock <= item.minimum_stock
+              const isLowStock = item.is_low_stock
               return (
                 <TableRow key={item.id}>
                   <TableCell>
@@ -631,14 +587,20 @@ export default function InventoryPage() {
                   </TableCell>
                   <TableCell>
                     <div className="space-y-2">
-                      <Badge variant={getStockBadgeVariant(stockStatus)}>
-                        {getStockIcon(stockStatus)}
-                        <span className="ml-1">{item.current_stock}</span>
-                      </Badge>
-                      <div className="text-xs text-muted-foreground">
-                        Min: {item.minimum_stock} | Max: {item.maximum_stock}
+                      <div className="flex items-center gap-2">
+                        <Badge variant={getStockBadgeVariant(stockStatus)}>
+                          {getStockIcon(stockStatus)}
+                          <span className="ml-1">{item.current_stock}</span>
+                        </Badge>
+                        <span className="text-sm text-muted-foreground">units</span>
                       </div>
-                      {isLowStock && (
+                      <div className="text-xs text-muted-foreground space-y-1">
+                        <div>Min: {item.minimum_stock} units</div>
+                        {item.reorder_point && item.reorder_point > 0 && (
+                          <div>Reorder at: {item.reorder_point} units</div>
+                        )}
+                      </div>
+                      {item.is_low_stock && (
                         <Button
                           size="sm"
                           variant="outline"
@@ -652,17 +614,29 @@ export default function InventoryPage() {
                     </div>
                   </TableCell>
                   <TableCell>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={stockStatus === "low" ? "destructive" : stockStatus === "reorder" ? "secondary" : "default"}>
+                        {item.stock_status || stockStatus}
+                      </Badge>
+                    </div>
+                    {item.is_low_stock && (
+                      <div className="text-xs text-red-600 mt-1">
+                        Needs restocking
+                      </div>
+                    )}
+                  </TableCell>
+                  <TableCell>
                     <div className="text-sm">
-                      <div>Cost: ${item.cost_price.toFixed(2)}</div>
-                      <div className="text-muted-foreground">Sell: ${item.selling_price.toFixed(2)}</div>
+                      <div className="font-medium">{item.branch_name}</div>
+                      <div className="text-xs text-muted-foreground">ID: {item.branch}</div>
                     </div>
                   </TableCell>
                   <TableCell>
-                    <div className="text-sm">{item.supplier}</div>
-                  </TableCell>
-                  <TableCell>
                     <div className="text-sm">
-                      {new Date(item.last_updated).toLocaleDateString()}
+                      {new Date(item.updated_at).toLocaleDateString()}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {new Date(item.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </div>
                   </TableCell>
                   <TableCell>
@@ -701,134 +675,72 @@ export default function InventoryPage() {
         </Table>
       </Card>
 
-      {/* Add/Edit Inventory Dialog */}
+      {/* Edit Inventory Dialog */}
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {editingItem ? 'Edit Inventory Item' : 'Add New Inventory Item'}
+              Edit Stock Levels
             </DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="product_id">Product</Label>
-              <Select 
-                value={formData.product_id} 
-                onValueChange={(value) => setFormData({ ...formData, product_id: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select product..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {products.map((product) => (
-                    <SelectItem key={product.id} value={product.id.toString()}>
-                      {product.name} ({product.product_type})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-sm text-muted-foreground">
-                Adding to: {selectedStoreName}
-              </p>
-            </div>
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Current Item Info */}
+            {editingItem && (
+              <div className="bg-muted p-4 rounded-lg">
+                <h3 className="font-medium mb-2">{editingItem.product_name}</h3>
+                <div className="grid grid-cols-2 gap-4 text-sm text-muted-foreground">
+                  <div>Product Code: {editingItem.product_code}</div>
+                  <div>Branch: {editingItem.branch_name}</div>
+                  <div>Current Stock: {editingItem.current_stock} units</div>
+                  <div>Status: {editingItem.stock_status}</div>
+                </div>
+              </div>
+            )}
 
+            {/* Editable Stock Fields */}
             <div className="grid grid-cols-3 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="current_stock">Current Stock</Label>
+                <Label htmlFor="current_stock">Current Stock *</Label>
                 <Input
                   id="current_stock"
                   type="number"
+                  min="0"
                   value={formData.current_stock}
                   onChange={(e) => setFormData({ ...formData, current_stock: e.target.value })}
                   required
                 />
+                <p className="text-xs text-muted-foreground">Available units</p>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="minimum_stock">Minimum Stock</Label>
+                <Label htmlFor="minimum_stock">Minimum Stock *</Label>
                 <Input
                   id="minimum_stock"
                   type="number"
+                  min="0"
                   value={formData.minimum_stock}
                   onChange={(e) => setFormData({ ...formData, minimum_stock: e.target.value })}
                   required
                 />
+                <p className="text-xs text-muted-foreground">Low stock threshold</p>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="maximum_stock">Maximum Stock</Label>
+                <Label htmlFor="reorder_point">Reorder Point</Label>
                 <Input
-                  id="maximum_stock"
+                  id="reorder_point"
                   type="number"
-                  value={formData.maximum_stock}
-                  onChange={(e) => setFormData({ ...formData, maximum_stock: e.target.value })}
-                  required
+                  min="0"
+                  value={formData.reorder_point}
+                  onChange={(e) => setFormData({ ...formData, reorder_point: e.target.value })}
                 />
+                <p className="text-xs text-muted-foreground">When to reorder</p>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="cost_price">Cost Price ($)</Label>
-                <Input
-                  id="cost_price"
-                  type="number"
-                  step="0.01"
-                  value={formData.cost_price}
-                  onChange={(e) => setFormData({ ...formData, cost_price: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="selling_price">Selling Price ($)</Label>
-                <Input
-                  id="selling_price"
-                  type="number"
-                  step="0.01"
-                  value={formData.selling_price}
-                  onChange={(e) => setFormData({ ...formData, selling_price: e.target.value })}
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="supplier">Supplier</Label>
-                <Input
-                  id="supplier"
-                  value={formData.supplier}
-                  onChange={(e) => setFormData({ ...formData, supplier: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="batch_number">Batch Number</Label>
-                <Input
-                  id="batch_number"
-                  value={formData.batch_number}
-                  onChange={(e) => setFormData({ ...formData, batch_number: e.target.value })}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="expiry_date">Expiry Date</Label>
-              <Input
-                id="expiry_date"
-                type="date"
-                value={formData.expiry_date}
-                onChange={(e) => setFormData({ ...formData, expiry_date: e.target.value })}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="notes">Notes</Label>
-              <Textarea
-                id="notes"
-                value={formData.notes}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                rows={3}
-                placeholder="Any special notes about this inventory item..."
-              />
+            <div className="bg-blue-50 p-4 rounded-lg">
+              <h4 className="font-medium text-blue-900 mb-2">📝 Note about API limitations</h4>
+              <p className="text-sm text-blue-700">
+                Only stock levels can be edited. Product details, pricing, supplier info, and batch data are managed separately.
+              </p>
             </div>
 
             <div className="flex justify-end gap-2 pt-4">
@@ -843,8 +755,8 @@ export default function InventoryPage() {
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={createInventoryItem.isPending || updateInventoryItem.isPending}>
-                {editingItem ? 'Update' : 'Create'} Inventory Item
+              <Button type="submit" disabled={updateInventoryItem.isPending}>
+                Update Stock Levels
               </Button>
             </div>
           </form>
@@ -874,8 +786,8 @@ export default function InventoryPage() {
                     <div className="font-medium">{requestingItem.minimum_stock}</div>
                   </div>
                   <div>
-                    <Label className="text-sm font-medium text-muted-foreground">Maximum Capacity</Label>
-                    <div className="font-medium">{requestingItem.maximum_stock}</div>
+                    <Label className="text-sm font-medium text-muted-foreground">Reorder Point</Label>
+                    <div className="font-medium">{requestingItem.reorder_point || 'Not set'}</div>
                   </div>
                 </div>
               </div>
@@ -970,14 +882,8 @@ export default function InventoryPage() {
           <Warehouse className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
           <h3 className="text-lg font-semibold mb-2">No inventory items found</h3>
           <p className="text-muted-foreground mb-4">
-            {searchTerm || stockFilter !== "all" ? "Try adjusting your search terms" : "Get started by adding your first inventory item"}
+            {searchTerm || stockFilter !== "all" ? "Try adjusting your search terms" : "All products have inventory records for this branch"}
           </p>
-          {!searchTerm && stockFilter === "all" && (
-            <Button onClick={() => { resetForm(); setShowDialog(true) }}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Inventory Item
-            </Button>
-          )}
         </div>
       )}
     </div>

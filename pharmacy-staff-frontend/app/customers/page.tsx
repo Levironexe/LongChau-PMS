@@ -1,7 +1,13 @@
 "use client"
 
 import { useState } from "react"
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { useCustomersOnly, useCreateUser, useCreateVipCustomer, useUpdateUser, useUpgradeToVip, useDeleteUser, useCustomerStats } from "@/hooks/api/useUsers"
+import {
+  useCreateCustomerFactory,
+  useCreateVipCustomerFactory,
+  useCanCreateUserViaFactory
+} from "@/hooks/api/useUserFactory"
+import { toast } from "@/hooks/use-toast"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -29,6 +35,7 @@ import {
 } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { Switch } from "@/components/ui/switch"
 import { 
   Users, 
   Plus, 
@@ -44,142 +51,66 @@ import {
   UserCheck,
   Star
 } from "lucide-react"
-import { api } from "@/lib/api"
+import { User as UserType } from "@/lib/types"
 
-interface Customer {
-  id: number
-  first_name: string
-  last_name: string
-  email: string
-  phone: string
-  customer_type: "regular" | "vip"
-  address?: string
-  date_of_birth?: string
-  registration_date: string
-  notes?: string
-  total_orders?: number
-  total_spent?: number
-}
+// Using the unified User interface with customer roles
+type Customer = UserType
 
 export default function CustomersPage() {
   const [showDialog, setShowDialog] = useState(false)
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [typeFilter, setTypeFilter] = useState<string>("all")
+  const [useFactoryPattern, setUseFactoryPattern] = useState(false)
   const [formData, setFormData] = useState({
     first_name: "",
     last_name: "",
     email: "",
     phone: "",
-    customer_type: "regular" as "regular" | "vip",
+    role: "customer" as "customer" | "vip_customer",
     address: "",
     date_of_birth: "",
     notes: ""
   })
 
-  const queryClient = useQueryClient()
+  // Real API calls using separated customer hooks
+  const searchFilters = {
+    ...(searchTerm && { search: searchTerm }),
+    ...(typeFilter !== "all" && { role: typeFilter })
+  }
+  
+  const { data: customers = [], isLoading, error } = useCustomersOnly(searchFilters)
+  const customerStats = useCustomerStats()
+  
+  // API mutations
+  const createCustomerMutation = useCreateUser()
+  const createVipCustomerMutation = useCreateVipCustomer()
+  const updateCustomerMutation = useUpdateUser()
+  const deleteCustomerMutation = useDeleteUser()
+  const upgradeToVipMutation = useUpgradeToVip()
+  
+  // Factory pattern hooks
+  const createCustomerFactory = useCreateCustomerFactory()
+  const createVipCustomerFactory = useCreateVipCustomerFactory()
+  const { canCreate: canCreateCustomerViaFactory } = useCanCreateUserViaFactory('customer')
+  const { canCreate: canCreateVipCustomerViaFactory } = useCanCreateUserViaFactory('vip_customer')
+  
+  // Handle success/error callbacks
+  const handleSuccess = (message: string) => {
+    toast({ title: "Success", description: message })
+    setShowDialog(false)
+    setEditingCustomer(null)
+    resetForm()
+  }
+  
+  const handleError = (error: any) => {
+    toast({ 
+      title: "Error", 
+      description: error?.message || "An error occurred",
+      variant: "destructive" 
+    })
+  }
 
-  // Mock data - replace with actual API calls
-  const { data: customers = [] } = useQuery({
-    queryKey: ["customers"],
-    queryFn: async () => {
-      // Simulate API call - replace with actual endpoint
-      return [
-        {
-          id: 1,
-          first_name: "John",
-          last_name: "Doe",
-          email: "john.doe@email.com",
-          phone: "+1-555-0123",
-          customer_type: "vip",
-          address: "123 Main St, New York, NY 10001",
-          date_of_birth: "1985-06-15",
-          registration_date: "2023-01-15",
-          notes: "Regular customer, prefers generic brands",
-          total_orders: 25,
-          total_spent: 450.75
-        },
-        {
-          id: 2,
-          first_name: "Jane",
-          last_name: "Smith",
-          email: "jane.smith@email.com",
-          phone: "+1-555-0124",
-          customer_type: "regular",
-          address: "456 Oak Ave, Brooklyn, NY 11201",
-          date_of_birth: "1990-03-22",
-          registration_date: "2023-03-20",
-          notes: "Allergic to penicillin",
-          total_orders: 8,
-          total_spent: 125.50
-        },
-        {
-          id: 3,
-          first_name: "Robert",
-          last_name: "Johnson",
-          email: "robert.j@email.com",
-          phone: "+1-555-0125",
-          customer_type: "vip",
-          address: "789 Pine St, Queens, NY 11372",
-          date_of_birth: "1978-11-08",
-          registration_date: "2022-12-10",
-          notes: "Diabetes patient, regular insulin purchases",
-          total_orders: 42,
-          total_spent: 890.25
-        }
-      ] as Customer[]
-    },
-  })
-
-  const createCustomer = useMutation({
-    mutationFn: (data: typeof formData) => {
-      // Replace with actual API call
-      return Promise.resolve({ 
-        ...data, 
-        id: Date.now(), 
-        registration_date: new Date().toISOString(),
-        total_orders: 0,
-        total_spent: 0
-      })
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["customers"] })
-      setShowDialog(false)
-      resetForm()
-    },
-  })
-
-  const updateCustomer = useMutation({
-    mutationFn: ({ id, ...data }: { id: number } & typeof formData) => {
-      // Replace with actual API call
-      return Promise.resolve({ id, ...data })
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["customers"] })
-      setEditingCustomer(null)
-      resetForm()
-    },
-  })
-
-  const deleteCustomer = useMutation({
-    mutationFn: (id: number) => {
-      // Replace with actual API call
-      return Promise.resolve()
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["customers"] })
-    },
-  })
-
-  const upgradeToVip = useMutation({
-    mutationFn: (id: number) => {
-      // Replace with actual API call
-      return Promise.resolve()
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["customers"] })
-    },
-  })
 
   const resetForm = () => {
     setFormData({
@@ -187,7 +118,7 @@ export default function CustomersPage() {
       last_name: "",
       email: "",
       phone: "",
-      customer_type: "regular",
+      role: "customer",
       address: "",
       date_of_birth: "",
       notes: ""
@@ -197,9 +128,32 @@ export default function CustomersPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (editingCustomer) {
-      updateCustomer.mutate({ id: editingCustomer.id, ...formData })
+      updateCustomerMutation.mutate({ id: editingCustomer.id, ...formData })
     } else {
-      createCustomer.mutate(formData)
+      // Create new customer using factory pattern if enabled and available
+      const factoryData = {
+        first_name: formData.first_name,
+        last_name: formData.last_name,
+        email: formData.email,
+        phone: formData.phone,
+        address: formData.address || "",
+        date_of_birth: formData.date_of_birth || "",
+        notes: formData.notes || ""
+      }
+      
+      if (formData.role === "vip_customer") {
+        if (useFactoryPattern && canCreateVipCustomerViaFactory) {
+          createVipCustomerFactory.mutate(factoryData)
+        } else {
+          createVipCustomerMutation.mutate(formData)
+        }
+      } else {
+        if (useFactoryPattern && canCreateCustomerViaFactory) {
+          createCustomerFactory.mutate(factoryData)
+        } else {
+          createCustomerMutation.mutate(formData)
+        }
+      }
     }
   }
 
@@ -210,7 +164,7 @@ export default function CustomersPage() {
       last_name: customer.last_name,
       email: customer.email,
       phone: customer.phone,
-      customer_type: customer.customer_type,
+      role: customer.role as "customer" | "vip_customer",
       address: customer.address || "",
       date_of_birth: customer.date_of_birth || "",
       notes: customer.notes || ""
@@ -218,17 +172,8 @@ export default function CustomersPage() {
     setShowDialog(true)
   }
 
-  const filteredCustomers = customers.filter((customer: Customer) => {
-    const fullName = `${customer.first_name} ${customer.last_name}`.toLowerCase()
-    const matchesSearch = fullName.includes(searchTerm.toLowerCase()) || 
-                         customer.email.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesType = typeFilter === "all" || customer.customer_type === typeFilter
-    return matchesSearch && matchesType
-  })
-
-  const vipCustomers = customers.filter(c => c.customer_type === "vip")
-  const regularCustomers = customers.filter(c => c.customer_type === "regular")
-  const totalSpent = customers.reduce((sum, c) => sum + (c.total_spent || 0), 0)
+  // Filtering is now handled by the API hooks, just use the data directly
+  const filteredCustomers = customers
 
   return (
     <div className="space-y-6">
@@ -254,7 +199,7 @@ export default function CustomersPage() {
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{customers.length}</div>
+            <div className="text-2xl font-bold">{customerStats.totalCustomers}</div>
           </CardContent>
         </Card>
 
@@ -264,7 +209,7 @@ export default function CustomersPage() {
             <Crown className="h-4 w-4 text-yellow-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-yellow-600">{vipCustomers.length}</div>
+            <div className="text-2xl font-bold text-yellow-600">{customerStats.vipCustomers}</div>
           </CardContent>
         </Card>
 
@@ -274,20 +219,21 @@ export default function CustomersPage() {
             <User className="h-4 w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-600">{regularCustomers.length}</div>
+            <div className="text-2xl font-bold text-blue-600">{customerStats.regularCustomers}</div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
+            <CardTitle className="text-sm font-medium">Active Customers</CardTitle>
             <Star className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">${totalSpent.toFixed(2)}</div>
+            <div className="text-2xl font-bold text-green-600">{customerStats.activeCustomers}</div>
           </CardContent>
         </Card>
       </div>
+
 
       {/* Search and Filters */}
       <div className="flex items-center justify-between gap-4">
@@ -309,8 +255,8 @@ export default function CustomersPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Customers</SelectItem>
-              <SelectItem value="regular">Regular</SelectItem>
-              <SelectItem value="vip">VIP</SelectItem>
+              <SelectItem value="customer">Regular</SelectItem>
+              <SelectItem value="vip_customer">VIP</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -362,9 +308,9 @@ export default function CustomersPage() {
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-2">
-                    <Badge variant={customer.customer_type === 'vip' ? 'default' : 'secondary'}>
-                      {customer.customer_type === 'vip' && <Crown className="h-3 w-3 mr-1" />}
-                      {customer.customer_type.toUpperCase()}
+                    <Badge variant={customer.role === 'vip_customer' ? 'default' : 'secondary'}>
+                      {customer.role === 'vip_customer' && <Crown className="h-3 w-3 mr-1" />}
+                      {customer.role === 'vip_customer' ? 'VIP' : 'REGULAR'}
                     </Badge>
                   </div>
                 </TableCell>
@@ -375,21 +321,21 @@ export default function CustomersPage() {
                   </div>
                 </TableCell>
                 <TableCell>
-                  <div className="font-medium">${(customer.total_spent || 0).toFixed(2)}</div>
+                  <div className="font-medium">₫{(customer.total_spent || 0).toLocaleString('vi-VN')}</div>
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-1 text-sm">
                     <Calendar className="h-3 w-3" />
-                    {new Date(customer.registration_date).toLocaleDateString()}
+                    {customer.registration_date ? new Date(customer.registration_date).toLocaleDateString() : 'N/A'}
                   </div>
                 </TableCell>
                 <TableCell>
                   <div className="flex gap-2">
-                    {customer.customer_type === "regular" && (
+                    {customer.role === "customer" && (
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => upgradeToVip.mutate(customer.id)}
+                        onClick={() => upgradeToVipMutation.mutate(customer.id)}
                       >
                         <Crown className="h-3 w-3 mr-1" />
                         VIP
@@ -407,7 +353,7 @@ export default function CustomersPage() {
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8"
-                      onClick={() => deleteCustomer.mutate(customer.id)}
+                      onClick={() => deleteCustomerMutation.mutate(customer.id)}
                     >
                       <Trash2 className="h-3 w-3" />
                     </Button>
@@ -473,14 +419,14 @@ export default function CustomersPage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="customer_type">Customer Type</Label>
-                <Select value={formData.customer_type} onValueChange={(value: "regular" | "vip") => setFormData({ ...formData, customer_type: value })}>
+                <Label htmlFor="role">Customer Type</Label>
+                <Select value={formData.role} onValueChange={(value: "customer" | "vip_customer") => setFormData({ ...formData, role: value })}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="regular">Regular</SelectItem>
-                    <SelectItem value="vip">VIP</SelectItem>
+                    <SelectItem value="customer">Regular</SelectItem>
+                    <SelectItem value="vip_customer">VIP</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -494,6 +440,35 @@ export default function CustomersPage() {
                 />
               </div>
             </div>
+
+            {/* Factory Pattern Toggle - Only show for create mode */}
+            {!editingCustomer && (
+              (formData.role === 'customer' && canCreateCustomerViaFactory) ||
+              (formData.role === 'vip_customer' && canCreateVipCustomerViaFactory)
+            ) && (
+              <div className="border border-dashed border-gray-300 rounded-lg p-4 bg-gray-50/50">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1">
+                    <Label htmlFor="customer-factory-toggle" className="text-sm font-medium text-gray-900">
+                      Use Factory Pattern
+                    </Label>
+                    <p className="text-xs text-gray-500">
+                      Create this {formData.role === 'vip_customer' ? 'VIP customer' : 'customer'} using the Factory Pattern with enhanced defaults and automatic benefits
+                    </p>
+                  </div>
+                  <Switch
+                    id="customer-factory-toggle"
+                    checked={useFactoryPattern}
+                    onCheckedChange={setUseFactoryPattern}
+                  />
+                </div>
+                {useFactoryPattern && (
+                  <div className="mt-3 text-xs text-blue-600 bg-blue-50 px-3 py-2 rounded">
+                    ✨ Factory Pattern enabled - {formData.role === 'vip_customer' ? 'VIP benefits and enhanced features' : 'Enhanced customer creation with optimizations'}
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="address">Address</Label>
@@ -527,7 +502,7 @@ export default function CustomersPage() {
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={createCustomer.isPending || updateCustomer.isPending}>
+              <Button type="submit" disabled={createCustomerMutation.isPending || updateCustomerMutation.isPending || createCustomerFactory.isPending || createVipCustomerFactory.isPending}>
                 {editingCustomer ? 'Update' : 'Create'} Customer
               </Button>
             </div>
