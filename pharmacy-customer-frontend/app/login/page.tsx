@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { ErrorPopup } from '@/components/ui/error-popup';
 import { useAuth } from '@/contexts/AuthContext';
 import { 
   Mail, 
@@ -37,6 +38,7 @@ export default function LoginPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
+  const [showErrorPopup, setShowErrorPopup] = useState(false);
 
   // Check if user was redirected from registration
   const isFromRegistration = searchParams.get('from') === 'register';
@@ -83,7 +85,10 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!validateForm()) return;
+    if (!validateForm()) {
+      setShowErrorPopup(true);
+      return;
+    }
 
     setIsSubmitting(true);
     try {
@@ -105,6 +110,10 @@ export default function LoginPage() {
     }
   };
 
+  const getErrorMessages = () => {
+    return Object.values(errors).filter(error => error && error !== '');
+  };
+
   const switchLoginMethod = () => {
     setLoginMethod(loginMethod === 'email' ? 'phone' : 'email');
     setFormData(prev => ({ ...prev, email: '' }));
@@ -113,6 +122,15 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-blue-100 to-white flex items-center justify-center p-4">
+      {/* Error Popup */}
+      <ErrorPopup
+        isOpen={showErrorPopup}
+        onClose={() => setShowErrorPopup(false)}
+        title="Please correct the following errors before continuing:"
+        errors={getErrorMessages()}
+        type="error"
+      />
+      
       <div className="w-full max-w-md">
         {/* Header */}
         <div className="text-center mb-8">
