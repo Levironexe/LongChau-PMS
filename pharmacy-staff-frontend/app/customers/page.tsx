@@ -10,6 +10,7 @@ import {
 import { toast } from "@/hooks/use-toast"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { CustomerForm } from "@/components/forms"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { 
@@ -33,9 +34,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { Switch } from "@/components/ui/switch"
 import { 
   Users, 
   Plus, 
@@ -62,16 +60,6 @@ export default function CustomersPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [typeFilter, setTypeFilter] = useState<string>("all")
   const [useFactoryPattern, setUseFactoryPattern] = useState(false)
-  const [formData, setFormData] = useState({
-    first_name: "",
-    last_name: "",
-    email: "",
-    phone: "",
-    role: "customer" as "customer" | "vip_customer",
-    address: "",
-    date_of_birth: "",
-    notes: ""
-  })
 
   // Real API calls using separated customer hooks
   const searchFilters = {
@@ -100,7 +88,6 @@ export default function CustomersPage() {
     toast({ title: "Success", description: message })
     setShowDialog(false)
     setEditingCustomer(null)
-    resetForm()
   }
   
   const handleError = (error: any) => {
@@ -112,63 +99,63 @@ export default function CustomersPage() {
   }
 
 
-  const resetForm = () => {
-    setFormData({
-      first_name: "",
-      last_name: "",
-      email: "",
-      phone: "",
-      role: "customer",
-      address: "",
-      date_of_birth: "",
-      notes: ""
-    })
-  }
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleFormSubmit = (data: any) => {
     if (editingCustomer) {
-      updateCustomerMutation.mutate({ id: editingCustomer.id, ...formData })
+      updateCustomerMutation.mutate(
+        { id: editingCustomer.id, ...data },
+        {
+          onSuccess: () => handleSuccess("Customer updated successfully!"),
+          onError: handleError,
+        }
+      )
     } else {
       // Create new customer using factory pattern if enabled and available
       const factoryData = {
-        first_name: formData.first_name,
-        last_name: formData.last_name,
-        email: formData.email,
-        phone: formData.phone,
-        address: formData.address || "",
-        date_of_birth: formData.date_of_birth || "",
-        notes: formData.notes || ""
+        first_name: data.first_name,
+        last_name: data.last_name,
+        email: data.email,
+        phone: data.phone,
+        address: data.address || "",
+        date_of_birth: data.date_of_birth || "",
+        notes: data.notes || ""
       }
       
-      if (formData.role === "vip_customer") {
+      if (data.role === "vip_customer") {
         if (useFactoryPattern && canCreateVipCustomerViaFactory) {
-          createVipCustomerFactory.mutate(factoryData)
+          createVipCustomerFactory.mutate(factoryData, {
+            onSuccess: () => handleSuccess("VIP customer created successfully via Factory Pattern!"),
+            onError: handleError,
+          })
         } else {
-          createVipCustomerMutation.mutate(formData)
+          createVipCustomerMutation.mutate(data, {
+            onSuccess: () => handleSuccess("VIP customer created successfully!"),
+            onError: handleError,
+          })
         }
       } else {
         if (useFactoryPattern && canCreateCustomerViaFactory) {
-          createCustomerFactory.mutate(factoryData)
+          createCustomerFactory.mutate(factoryData, {
+            onSuccess: () => handleSuccess("Customer created successfully via Factory Pattern!"),
+            onError: handleError,
+          })
         } else {
-          createCustomerMutation.mutate(formData)
+          createCustomerMutation.mutate(data, {
+            onSuccess: () => handleSuccess("Customer created successfully!"),
+            onError: handleError,
+          })
         }
       }
     }
   }
 
+  const handleFormCancel = () => {
+    setShowDialog(false)
+    setEditingCustomer(null)
+  }
+
   const handleEdit = (customer: Customer) => {
     setEditingCustomer(customer)
-    setFormData({
-      first_name: customer.first_name,
-      last_name: customer.last_name,
-      email: customer.email,
-      phone: customer.phone,
-      role: customer.role as "customer" | "vip_customer",
-      address: customer.address || "",
-      date_of_birth: customer.date_of_birth || "",
-      notes: customer.notes || ""
-    })
     setShowDialog(true)
   }
 
@@ -185,7 +172,7 @@ export default function CustomersPage() {
             Manage your pharmacy customers and VIP members
           </p>
         </div>
-        <Button onClick={() => { resetForm(); setShowDialog(true) }}>
+        <Button onClick={() => setShowDialog(true)}>
           <Plus className="h-4 w-4 mr-2" />
           Add Customer
         </Button>
@@ -335,7 +322,10 @@ export default function CustomersPage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => upgradeToVipMutation.mutate(customer.id)}
+                        onClick={() => upgradeToVipMutation.mutate(customer.id, {
+                        onSuccess: () => handleSuccess("Customer upgraded to VIP successfully!"),
+                        onError: handleError,
+                      })}
                       >
                         <Crown className="h-3 w-3 mr-1" />
                         VIP
@@ -353,7 +343,10 @@ export default function CustomersPage() {
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8"
-                      onClick={() => deleteCustomerMutation.mutate(customer.id)}
+                      onClick={() => deleteCustomerMutation.mutate(customer.id, {
+                        onSuccess: () => handleSuccess("Customer deleted successfully!"),
+                        onError: handleError,
+                      })}
                     >
                       <Trash2 className="h-3 w-3" />
                     </Button>
@@ -373,140 +366,21 @@ export default function CustomersPage() {
               {editingCustomer ? 'Edit Customer' : 'Add New Customer'}
             </DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="first_name">First Name</Label>
-                <Input
-                  id="first_name"
-                  value={formData.first_name}
-                  onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="last_name">Last Name</Label>
-                <Input
-                  id="last_name"
-                  value={formData.last_name}
-                  onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="phone">Phone</Label>
-                <Input
-                  id="phone"
-                  value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="role">Customer Type</Label>
-                <Select value={formData.role} onValueChange={(value: "customer" | "vip_customer") => setFormData({ ...formData, role: value })}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="customer">Regular</SelectItem>
-                    <SelectItem value="vip_customer">VIP</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="date_of_birth">Date of Birth</Label>
-                <Input
-                  id="date_of_birth"
-                  type="date"
-                  value={formData.date_of_birth}
-                  onChange={(e) => setFormData({ ...formData, date_of_birth: e.target.value })}
-                />
-              </div>
-            </div>
-
-            {/* Factory Pattern Toggle - Only show for create mode */}
-            {!editingCustomer && (
-              (formData.role === 'customer' && canCreateCustomerViaFactory) ||
-              (formData.role === 'vip_customer' && canCreateVipCustomerViaFactory)
-            ) && (
-              <div className="border border-dashed border-gray-300 rounded-lg p-4 bg-gray-50/50">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-1">
-                    <Label htmlFor="customer-factory-toggle" className="text-sm font-medium text-gray-900">
-                      Use Factory Pattern
-                    </Label>
-                    <p className="text-xs text-gray-500">
-                      Create this {formData.role === 'vip_customer' ? 'VIP customer' : 'customer'} using the Factory Pattern with enhanced defaults and automatic benefits
-                    </p>
-                  </div>
-                  <Switch
-                    id="customer-factory-toggle"
-                    checked={useFactoryPattern}
-                    onCheckedChange={setUseFactoryPattern}
-                  />
-                </div>
-                {useFactoryPattern && (
-                  <div className="mt-3 text-xs text-blue-600 bg-blue-50 px-3 py-2 rounded">
-                    ✨ Factory Pattern enabled - {formData.role === 'vip_customer' ? 'VIP benefits and enhanced features' : 'Enhanced customer creation with optimizations'}
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <Label htmlFor="address">Address</Label>
-              <Input
-                id="address"
-                value={formData.address}
-                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="notes">Notes</Label>
-              <Textarea
-                id="notes"
-                value={formData.notes}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                rows={3}
-                placeholder="Any special notes about this customer..."
-              />
-            </div>
-
-            <div className="flex justify-end gap-2 pt-4">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setShowDialog(false)
-                  setEditingCustomer(null)
-                  resetForm()
-                }}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={createCustomerMutation.isPending || updateCustomerMutation.isPending || createCustomerFactory.isPending || createVipCustomerFactory.isPending}>
-                {editingCustomer ? 'Update' : 'Create'} Customer
-              </Button>
-            </div>
-          </form>
+          <CustomerForm
+            customer={editingCustomer}
+            useFactoryPattern={useFactoryPattern}
+            onFactoryPatternChange={setUseFactoryPattern}
+            canCreateCustomerViaFactory={canCreateCustomerViaFactory}
+            canCreateVipCustomerViaFactory={canCreateVipCustomerViaFactory}
+            onSubmit={handleFormSubmit}
+            onCancel={handleFormCancel}
+            isSubmitting={
+              createCustomerMutation.isPending || 
+              updateCustomerMutation.isPending || 
+              createCustomerFactory.isPending || 
+              createVipCustomerFactory.isPending
+            }
+          />
         </DialogContent>
       </Dialog>
 
@@ -518,7 +392,7 @@ export default function CustomersPage() {
             {searchTerm || typeFilter !== "all" ? "Try adjusting your search terms" : "Get started by adding your first customer"}
           </p>
           {!searchTerm && typeFilter === "all" && (
-            <Button onClick={() => { resetForm(); setShowDialog(true) }}>
+            <Button onClick={() => setShowDialog(true)}>
               <Plus className="h-4 w-4 mr-2" />
               Add Customer
             </Button>

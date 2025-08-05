@@ -1,17 +1,5 @@
-import { zodResolver } from "@hookform/resolvers/zod"
-import { UseFormProps, useForm } from "react-hook-form"
-import { z, ZodSchema } from "zod"
-
-// Generic form hook that combines react-hook-form with zod validation
-export function useZodForm<TSchema extends ZodSchema>(
-  schema: TSchema,
-  options?: Omit<UseFormProps<z.infer<TSchema>>, "resolver">
-) {
-  return useForm<z.infer<TSchema>>({
-    resolver: zodResolver(schema),
-    ...options,
-  })
-}
+// Re-export zodResolver for convenience
+export { zodResolver } from "@hookform/resolvers/zod"
 
 // Form submission handler type
 export type FormSubmitHandler<T> = (data: T) => void | Promise<void>
