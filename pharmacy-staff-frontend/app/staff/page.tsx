@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { useStaffOnly, useCreateUser, useCreateStaff, useUpdateUser, useDeleteUser, useStaffStats } from "@/hooks/api/useUsers"
+import { useStaffOnly, useUsers, useCreateUser, useCreateStaff, useUpdateUser, useDeleteUser, useStaffStats } from "@/hooks/api/useUsers"
 import {
   useCreateStaffFactory,
   useCreateUserFactory,
@@ -34,9 +34,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { Switch } from "@/components/ui/switch"
 import { 
   UserCog, 
   Plus, 
@@ -52,6 +49,11 @@ import {
   UserX
 } from "lucide-react"
 import { User as UserType } from "@/lib/types"
+import { StaffForm } from "@/components/forms"
+import type { 
+  StaffFormInput, 
+  CreateStaffFactoryInput
+} from "@/lib/validations/staff"
 
 // Using staff roles from the unified User system
 const staffRoles = [
@@ -79,15 +81,9 @@ export default function StaffPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [roleFilter, setRoleFilter] = useState<string>("all")
   const [useFactoryPattern, setUseFactoryPattern] = useState(false)
-  const [formData, setFormData] = useState({
-    first_name: "",
-    last_name: "",
-    email: "",
-    phone: "",
-    role: "cashier",
-    status: "active" as "active" | "inactive",
-    notes: ""
-  })
+  // Get available pharmacists for technician supervision
+  const { data: allStaff = [] } = useUsers({ role: "pharmacist" })
+  const availablePharmacists = allStaff.filter(s => s.role === "pharmacist")
 
   // Real API calls using separated staff hooks
   const searchFilters = {
@@ -106,14 +102,17 @@ export default function StaffPage() {
   // Factory pattern hooks
   const createStaffFactory = useCreateStaffFactory()
   const createUserFactory = useCreateUserFactory()
-  const { canCreate: canCreateStaffViaFactory } = useCanCreateUserViaFactory(formData.role)
+  const { canCreate: canCreatePharmacistViaFactory } = useCanCreateUserViaFactory("pharmacist")
+  const { canCreate: canCreateTechnicianViaFactory } = useCanCreateUserViaFactory("technician")
+  const { canCreate: canCreateManagerViaFactory } = useCanCreateUserViaFactory("manager")
+  const { canCreate: canCreateCashierViaFactory } = useCanCreateUserViaFactory("cashier")
+  const { canCreate: canCreateInventoryManagerViaFactory } = useCanCreateUserViaFactory("inventory_manager")
   
   // Handle success/error callbacks
   const handleSuccess = (message: string) => {
     toast({ title: "Success", description: message })
     setShowDialog(false)
     setEditingStaff(null)
-    resetForm()
   }
   
   const handleError = (error: any) => {
@@ -123,53 +122,39 @@ export default function StaffPage() {
       variant: "destructive" 
     })
   }
-  
-  const resetForm = () => {
-    setFormData({
-      first_name: "",
-      last_name: "",
-      email: "",
-      phone: "",
-      role: "cashier",
-      status: "active",
-      notes: ""
-    })
-  }
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleFormSubmit = (data: StaffFormInput | CreateStaffFactoryInput) => {
     if (editingStaff) {
-      updateStaffMutation.mutate({ id: editingStaff.id, ...formData, role: formData.role as any })
-    } else {
-      // Create new staff using factory pattern if enabled and available
-      if (useFactoryPattern && canCreateStaffViaFactory) {
-        const factoryData = {
-          first_name: formData.first_name,
-          last_name: formData.last_name,
-          email: formData.email,
-          phone: formData.phone,
-          address: "",
-          notes: formData.notes,
-          role: formData.role
-        }
-        createStaffFactory.mutate(factoryData)
-      } else {
-        createStaffMutation.mutate({ ...formData, role: formData.role as any })
+      // Update existing staff member
+      const updateData = {
+        id: editingStaff.id,
+        ...data,
       }
+      updateStaffMutation.mutate(updateData, {
+        onSuccess: () => handleSuccess("Staff member updated successfully!"),
+        onError: handleError,
+      })
+    } else {
+      // Create new staff member - ensure role is included for factory pattern data
+      const createData = {
+        ...data,
+        // Add role if not present (for factory pattern data)
+        role: 'role' in data ? data.role : 'pharmacist'
+      }
+      createStaffMutation.mutate(createData, {
+        onSuccess: () => handleSuccess("Staff member created successfully!"),
+        onError: handleError,
+      })
     }
+  }
+  
+  const handleFormCancel = () => {
+    setShowDialog(false)
+    setEditingStaff(null)
   }
 
   const handleEdit = (staffMember: StaffMember) => {
     setEditingStaff(staffMember)
-    setFormData({
-      first_name: staffMember.first_name,
-      last_name: staffMember.last_name,
-      email: staffMember.email,
-      phone: staffMember.phone,
-      role: staffMember.role,
-      status: staffMember.status || "active",
-      notes: staffMember.notes || ""
-    })
     setShowDialog(true)
   }
 
@@ -194,7 +179,7 @@ export default function StaffPage() {
         </div>
         <Dialog open={showDialog} onOpenChange={setShowDialog}>
           <DialogTrigger asChild>
-            <Button onClick={() => resetForm()}>
+            <Button onClick={() => setShowDialog(true)}>
               <Plus className="h-4 w-4 mr-2" />
               Add Staff Member
             </Button>
@@ -357,9 +342,7 @@ export default function StaffPage() {
       {/* Add/Edit Staff Dialog */}
       <Dialog open={showDialog || !!editingStaff} onOpenChange={(open) => {
         if (!open) {
-          setShowDialog(false)
-          setEditingStaff(null)
-          resetForm()
+          handleFormCancel()
         }
       }}>
         <DialogContent className="max-w-2xl">
@@ -368,146 +351,20 @@ export default function StaffPage() {
               {editingStaff ? 'Edit Staff Member' : 'Add New Staff Member'}
             </DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="first_name">First Name</Label>
-                <Input
-                  id="first_name"
-                  value={formData.first_name}
-                  onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="last_name">Last Name</Label>
-                <Input
-                  id="last_name"
-                  value={formData.last_name}
-                  onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="phone">Phone</Label>
-                <Input
-                  id="phone"
-                  value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="role">Role</Label>
-                <Select value={formData.role} onValueChange={(value) => setFormData({ ...formData, role: value })}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {staffRoles.map((role) => (
-                      <SelectItem key={role.value} value={role.value}>
-                        {role.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="status">Status</Label>
-                <Select value={formData.status} onValueChange={(value: "active" | "inactive") => setFormData({ ...formData, status: value })}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="active">Active</SelectItem>
-                    <SelectItem value="inactive">Inactive</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            
-            {/* Factory Pattern Toggle - Only show for create mode */}
-            {!editingStaff && canCreateStaffViaFactory && (
-              <div className="border border-dashed border-gray-300 rounded-lg p-4 bg-gray-50/50">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-1">
-                    <Label htmlFor="staff-factory-toggle" className="text-sm font-medium text-gray-900">
-                      Use Factory Pattern
-                    </Label>
-                    <p className="text-xs text-gray-500">
-                      Create this {staffRoles.find(r => r.value === formData.role)?.label.toLowerCase()} using the Factory Pattern with enhanced defaults and validation
-                    </p>
-                  </div>
-                  <Switch
-                    id="staff-factory-toggle"
-                    checked={useFactoryPattern}
-                    onCheckedChange={setUseFactoryPattern}
-                  />
-                </div>
-                {useFactoryPattern && (
-                  <div className="mt-3 text-xs text-blue-600 bg-blue-50 px-3 py-2 rounded">
-                    ✨ Factory Pattern enabled - Enhanced creation with role-specific defaults and permissions
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <Label htmlFor="notes">Notes</Label>
-              <Textarea
-                id="notes"
-                value={formData.notes}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                rows={3}
-              />
-            </div>
-
-            {/* Role Permissions Info */}
-            <div className="space-y-2">
-              <Label>Role Permissions</Label>
-              <div className="p-3 bg-muted rounded-md">
-                <div className="flex flex-wrap gap-1">
-                  {permissions[formData.role as keyof typeof permissions]?.map((permission) => (
-                    <Badge key={permission} variant="outline" className="text-xs">
-                      {permission.replace('_', ' ')}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-4">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setShowDialog(false)
-                  setEditingStaff(null)
-                  resetForm()
-                }}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={createStaffMutation.isPending || updateStaffMutation.isPending || createStaffFactory.isPending}>
-                {editingStaff ? 'Update' : 'Create'} Staff Member
-              </Button>
-            </div>
-          </form>
+          <StaffForm
+            staff={editingStaff}
+            useFactoryPattern={useFactoryPattern}
+            onFactoryPatternChange={setUseFactoryPattern}
+            canCreatePharmacistViaFactory={canCreatePharmacistViaFactory}
+            canCreateTechnicianViaFactory={canCreateTechnicianViaFactory}
+            canCreateManagerViaFactory={canCreateManagerViaFactory}
+            canCreateCashierViaFactory={canCreateCashierViaFactory}
+            canCreateInventoryManagerViaFactory={canCreateInventoryManagerViaFactory}
+            availablePharmacists={availablePharmacists}
+            onSubmit={handleFormSubmit}
+            onCancel={handleFormCancel}
+            isSubmitting={createStaffMutation.isPending || updateStaffMutation.isPending}
+          />
         </DialogContent>
       </Dialog>
 

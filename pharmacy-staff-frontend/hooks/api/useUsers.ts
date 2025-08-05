@@ -98,7 +98,14 @@ export const useStaffOnly = (filters?: Omit<UserFilters, 'role'>) => {
   return useQuery({
     queryKey: queryKeys.users.list({ ...filters, role: 'staff' }),
     queryFn: async () => {
-      // Use general users endpoint with client-side filtering
+      // If no filters are applied, use the dedicated staff endpoint for better performance
+      const hasFilters = filters && Object.keys(filters).length > 0
+      
+      if (!hasFilters) {
+        return await userService.getStaff()
+      }
+      
+      // Use general users endpoint with client-side filtering when filters are applied
       const allUsers = await userService.getUsers(filters)
       return allUsers.filter(user => !['customer', 'vip_customer'].includes(user.role))
     },

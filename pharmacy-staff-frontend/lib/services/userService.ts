@@ -4,11 +4,27 @@ import { UserFilters } from '../queryKeys'
 
 // User Service - All user-related API calls
 export const userService = {
-  // GET /users/ - Get all users with filtering
+  // GET /users/ - Get all users with filtering (handles pagination)
   getUsers: async (filters?: UserFilters): Promise<User[]> => {
-    const queryString = filters ? createQueryParams(filters) : ''
-    const response = await api.get(`/users/${queryString ? `?${queryString}` : ''}`)
-    return response.data.results || []
+    const params = { ...filters }
+    const queryString = createQueryParams(params)
+    
+    // First request to get total count and first page
+    let response = await api.get(`/users/?${queryString}`)
+    let allUsers = response.data.results || []
+    
+    // If there are more pages, fetch them
+    let nextUrl = response.data.next
+    while (nextUrl) {
+      // Extract just the query parameters from the next URL
+      const nextUrlObj = new URL(nextUrl)
+      const nextQueryString = nextUrlObj.search
+      const nextResponse = await api.get(`/users/${nextQueryString}`)
+      allUsers = [...allUsers, ...(nextResponse.data.results || [])]
+      nextUrl = nextResponse.data.next
+    }
+    
+    return allUsers
   },
 
   // GET /users/{id}/ - Get single user

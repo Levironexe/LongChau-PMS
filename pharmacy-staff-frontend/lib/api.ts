@@ -50,11 +50,16 @@ api.interceptors.response.use(
   }
 )
 
-// API Error type for TypeScript
-export interface ApiError {
-  message: string
-  status?: number
-  data?: any
+// API Error class for TypeScript
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public status?: number,
+    public data?: any
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
 }
 
 // Utility function for handling API responses

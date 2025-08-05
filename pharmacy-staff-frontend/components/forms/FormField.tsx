@@ -143,6 +143,19 @@ export function SelectField<
   options,
   disabled = false,
 }: SelectFieldProps<TFieldValues, TName>) {
+  // Filter out duplicate values to prevent React key warnings and selection issues
+  const uniqueOptions = React.useMemo(() => {
+    const seen = new Set()
+    return options.filter(option => {
+      if (seen.has(option.value)) {
+        console.warn(`Duplicate option value removed: ${option.value} (${option.label})`)
+        return false
+      }
+      seen.add(option.value)
+      return true
+    })
+  }, [options])
+
   return (
     <BaseFormField
       control={control}
@@ -152,7 +165,7 @@ export function SelectField<
           <FormLabel>{label}</FormLabel>
           <Select
             onValueChange={field.onChange}
-            defaultValue={field.value}
+            value={field.value ? String(field.value) : ""}
             disabled={disabled}
           >
             <FormControl>
@@ -161,8 +174,11 @@ export function SelectField<
               </SelectTrigger>
             </FormControl>
             <SelectContent>
-              {options.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
+              {uniqueOptions.map((option, index) => (
+                <SelectItem 
+                  key={`${name}-${option.value}-${index}`}
+                  value={option.value}
+                >
                   {option.label}
                 </SelectItem>
               ))}
