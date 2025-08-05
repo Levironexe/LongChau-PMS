@@ -1,6 +1,7 @@
 export interface Product {
   id: number
   name: string
+  product_code: string
   product_type: "medicine" | "supplement" | "medical_device"
   price: string // Decimal as string
   requires_prescription: boolean

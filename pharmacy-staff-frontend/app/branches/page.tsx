@@ -42,7 +42,6 @@ import {
 } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Switch } from "@/components/ui/switch"
 import { 
   Store, 
   Plus, 
@@ -64,6 +63,8 @@ import {
   DollarSign
 } from "lucide-react"
 import { Branch, BranchConfig } from "@/lib/types"
+import { BranchForm } from "@/components/forms"
+import type { BranchCreateData, BranchEditData } from "@/lib/validations/branch"
 
 export default function BranchesPage() {
   const [showBranchDialog, setShowBranchDialog] = useState(false)
@@ -135,13 +136,19 @@ export default function BranchesPage() {
     })
   }
 
-  const handleBranchSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleBranchSubmit = (data: BranchCreateData | BranchEditData) => {
     if (editingBranch) {
-      updateBranch.mutate({ id: editingBranch.id, ...branchFormData })
+      updateBranch.mutate({ id: editingBranch.id, ...data })
     } else {
-      createBranch.mutate(branchFormData)
+      // For create mode, ensure we have all required fields
+      createBranch.mutate(data as BranchCreateData)
     }
+  }
+
+  const handleBranchCancel = () => {
+    setShowBranchDialog(false)
+    setEditingBranch(null)
+    resetBranchForm()
   }
 
   const handleConfigSubmit = (e: React.FormEvent) => {
@@ -564,7 +571,7 @@ export default function BranchesPage() {
         </TabsContent>
       </Tabs>
 
-      {/* Branch Dialog */}
+      {/* Branch Dialog with Validation */}
       <Dialog open={showBranchDialog} onOpenChange={setShowBranchDialog}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -572,126 +579,12 @@ export default function BranchesPage() {
               {editingBranch ? 'Edit Branch' : 'Add New Branch'}
             </DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleBranchSubmit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">Branch Name</Label>
-                <Input
-                  id="name"
-                  value={branchFormData.name}
-                  onChange={(e) => setBranchFormData({ ...branchFormData, name: e.target.value })}
-                  required
-                  placeholder="Long Chau - District Name"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="status">Status</Label>
-                <Select 
-                  value={branchFormData.status} 
-                  onValueChange={(value: "active" | "inactive" | "maintenance") => 
-                    setBranchFormData({ ...branchFormData, status: value })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="active">Active</SelectItem>
-                    <SelectItem value="inactive">Inactive</SelectItem>
-                    <SelectItem value="maintenance">Maintenance</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="address">Address</Label>
-              <Input
-                id="address"
-                value={branchFormData.address}
-                onChange={(e) => setBranchFormData({ ...branchFormData, address: e.target.value })}
-                required
-                placeholder="Street address, District, City"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="phone">Phone</Label>
-                <Input
-                  id="phone"
-                  value={branchFormData.phone}
-                  onChange={(e) => setBranchFormData({ ...branchFormData, phone: e.target.value })}
-                  required
-                  placeholder="+84-28-3822-xxxx"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={branchFormData.email}
-                  onChange={(e) => setBranchFormData({ ...branchFormData, email: e.target.value })}
-                  required
-                  placeholder="branch@longchau.com.vn"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="manager_name">Manager Name</Label>
-                <Input
-                  id="manager_name"
-                  value={branchFormData.manager_name}
-                  onChange={(e) => setBranchFormData({ ...branchFormData, manager_name: e.target.value })}
-                  placeholder="Full name of branch manager"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="opening_hours">Opening Hours</Label>
-                <Input
-                  id="opening_hours"
-                  value={branchFormData.opening_hours}
-                  onChange={(e) => setBranchFormData({ ...branchFormData, opening_hours: e.target.value })}
-                  placeholder="7:00 AM - 10:00 PM"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="notes">Notes</Label>
-              <Textarea
-                id="notes"
-                value={branchFormData.notes}
-                onChange={(e) => setBranchFormData({ ...branchFormData, notes: e.target.value })}
-                rows={3}
-                placeholder="Any special notes about this branch..."
-              />
-            </div>
-
-            <div className="flex justify-end gap-2 pt-4">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setShowBranchDialog(false)
-                  setEditingBranch(null)
-                  resetBranchForm()
-                }}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={createBranch.isPending || updateBranch.isPending}>
-                {createBranch.isPending || updateBranch.isPending ? (
-                  editingBranch ? 'Updating...' : 'Creating...'
-                ) : (
-                  editingBranch ? 'Update Branch' : 'Create Branch'
-                )}
-              </Button>
-            </div>
-          </form>
+          <BranchForm
+            branch={editingBranch}
+            onSubmit={handleBranchSubmit}
+            onCancel={handleBranchCancel}
+            isSubmitting={createBranch.isPending || updateBranch.isPending}
+          />
         </DialogContent>
       </Dialog>
 

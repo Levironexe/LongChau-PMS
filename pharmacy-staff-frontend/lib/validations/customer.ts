@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { emailSchema, phoneSchema, nameSchema, optionalDateSchema, textAreaSchema } from "./index"
+import { emailSchema, phoneSchema, nameSchema, optionalDateSchema, textAreaSchema } from "./common"
 
 // Customer role validation
 export const customerRoleSchema = z.enum(["customer", "vip_customer"], {

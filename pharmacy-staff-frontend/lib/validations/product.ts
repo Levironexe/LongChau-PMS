@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { nameSchema, priceSchema, textAreaSchema } from "./index"
+import { nameSchema, priceSchema, textAreaSchema } from "./common"
 
 // Base product validation schema - product_code auto-generated in form
 const baseProductSchema = z.object({
