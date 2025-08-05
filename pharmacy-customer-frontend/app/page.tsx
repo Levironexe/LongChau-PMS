@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import Link from "next/link";
 import { ArrowRight, Shield, Truck, Clock, Star, Heart, ShoppingCart } from "lucide-react";
 import { Button } from "../components/ui/button";
@@ -77,13 +78,44 @@ const features = [
 
 export default function Home() {
   const { addToCart, isInCart } = useCart();
+  const [addingToCart, setAddingToCart] = React.useState<number | null>(null);
+  const [showToast, setShowToast] = React.useState<string | null>(null);
 
-  const handleAddToCart = (product: any) => {
-    addToCart(product);
+  const handleAddToCart = async (product: any) => {
+    try {
+      setAddingToCart(product.id);
+      console.log('Adding product to cart:', product);
+      addToCart(product);
+      console.log('Product added successfully');
+      
+      // Show success toast
+      setShowToast(`${product.name} added to cart!`);
+      
+      // Hide loading state and toast
+      setTimeout(() => {
+        setAddingToCart(null);
+        setShowToast(null);
+      }, 2000);
+    } catch (error) {
+      console.error('Error adding product to cart:', error);
+      setAddingToCart(null);
+      setShowToast('Failed to add item to cart');
+      setTimeout(() => setShowToast(null), 2000);
+    }
   };
 
   return (
     <div className="min-h-screen">
+      {/* Toast Notification */}
+      {showToast && (
+        <div className="fixed top-20 right-4 z-50 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg animate-in slide-in-from-right duration-300">
+          <div className="flex items-center gap-2">
+            <ShoppingCart className="h-4 w-4" />
+            {showToast}
+          </div>
+        </div>
+      )}
+      
       {/* Hero Section */}
       <section className="bg-gradient-to-br from-blue-50 via-blue-100 to-white py-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -181,12 +213,14 @@ export default function Home() {
                 href={category.href}
                 className="group"
               >
-                <Card className="p-6 text-center hover:shadow-lg transition-all duration-300 hover:-translate-y-1 cursor-pointer">
+                <Card className="p-6 text-center hover:shadow-lg transition-all duration-300 hover:-translate-y-1 cursor-pointer h-full flex flex-col justify-between min-h-[160px]">
                   <div className="text-4xl mb-3">{category.icon}</div>
-                  <h3 className="font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors">
-                    {category.name}
-                  </h3>
-                  <p className="text-sm text-gray-600">{category.description}</p>
+                  <div className="flex-1 flex flex-col justify-center">
+                    <h3 className="font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors text-sm leading-tight">
+                      {category.name}
+                    </h3>
+                    <p className="text-xs text-gray-600 leading-tight">{category.description}</p>
+                  </div>
                 </Card>
               </Link>
             ))}
@@ -271,10 +305,19 @@ export default function Home() {
                         size="sm"
                         onClick={() => handleAddToCart(product)}
                         className="flex-1 bg-blue-600 hover:bg-blue-700"
-                        disabled={!product.is_available}
+                        disabled={!product.is_available || addingToCart === product.id}
                       >
-                        <ShoppingCart className="h-4 w-4 mr-1" />
-                        {isInCart(product.id) ? 'Added' : 'Add to Cart'}
+                        {addingToCart === product.id ? (
+                          <div className="flex items-center gap-1">
+                            <div className="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent" />
+                            Adding...
+                          </div>
+                        ) : (
+                          <>
+                            <ShoppingCart className="h-4 w-4 mr-1" />
+                            {isInCart(product.id) ? 'Added' : 'Add to Cart'}
+                          </>
+                        )}
                       </Button>
                       <Button size="sm" variant="outline">
                         <Heart className="h-4 w-4" />
@@ -327,13 +370,13 @@ export default function Home() {
           <p className="text-xl text-blue-100 mb-8">
             Get information about promotional programs and useful health knowledge
           </p>
-          <div className="max-w-md mx-auto flex gap-4">
+          <div className="max-w-md mx-auto flex gap-4 items-stretch">
             <input
               type="email"
               placeholder="Enter your email"
-              className="flex-1 px-4 py-3 rounded-lg border-0 focus:ring-2 focus:ring-white focus:ring-opacity-50"
+              className="flex-1 px-4 py-3 rounded-lg border-0 focus:ring-2 focus:ring-white focus:ring-opacity-50 h-12"
             />
-            <Button className="bg-white text-blue-600 hover:bg-gray-100 px-6 py-3">
+            <Button className="bg-white text-blue-600 hover:bg-gray-100 px-6 py-3 h-12">
               Subscribe
             </Button>
           </div>
