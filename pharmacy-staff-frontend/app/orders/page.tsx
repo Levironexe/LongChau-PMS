@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -39,53 +39,17 @@ import {
   Eye,
   DollarSign,
   Package,
-  User,
   Calendar,
   ClipboardList,
   CheckCircle,
   Clock,
   XCircle
 } from "lucide-react"
-import { api } from "@/lib/api"
+import { useOrders, useCreateOrder, useUpdateOrder, useTransitionOrder, useDeleteOrder, useOrderStats } from "@/hooks/api/useOrders"
+import { useCustomersOnly } from "@/hooks/api/useUsers"
+import { useProducts } from "@/hooks/api/useProducts"
 
-interface OrderItem {
-  id: number
-  product_id: number
-  product_name: string
-  price: string
-  quantity: number
-  subtotal: number
-}
-
-interface Order {
-  id: number
-  customer_id: number
-  customer_name: string
-  customer_email: string
-  order_date: string
-  status: "pending" | "processing" | "completed" | "cancelled"
-  total_amount: number
-  items: OrderItem[]
-  notes?: string
-  payment_method: "cash" | "card" | "insurance"
-}
-
-interface Customer {
-  id: number
-  first_name: string
-  last_name: string
-  email: string
-  phone: string
-  customer_type: "regular" | "vip"
-}
-
-interface Product {
-  id: number
-  name: string
-  price: string
-  stock: number
-  requires_prescription: boolean
-}
+import { Order, User, Product } from "@/lib/types"
 
 export default function OrdersPage() {
   const [showDialog, setShowDialog] = useState(false)
@@ -94,227 +58,101 @@ export default function OrdersPage() {
   const [viewingOrder, setViewingOrder] = useState<Order | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
+  const [typeFilter, setTypeFilter] = useState<string>("all")
   const [cartItems, setCartItems] = useState<any[]>([])
   const [formData, setFormData] = useState({
     customer_id: "",
+    order_type: "in_store" as "prescription" | "in_store" | "online",
     payment_method: "cash" as "cash" | "card" | "insurance",
     notes: ""
   })
 
   const queryClient = useQueryClient()
 
-  // Mock data - replace with actual API calls
-  const { data: orders = [] } = useQuery({
-    queryKey: ["orders"],
-    queryFn: async () => {
-      // Simulate API call - replace with actual endpoint
-      return [
-        {
-          id: 1,
-          customer_id: 1,
-          customer_name: "John Doe",
-          customer_email: "john.doe@email.com",
-          order_date: "2024-01-15T10:30:00Z",
-          status: "completed",
-          total_amount: 45.50,
-          payment_method: "card",
-          notes: "Regular refill order",
-          items: [
-            {
-              id: 1,
-              product_id: 1,
-              product_name: "Paracetamol 500mg",
-              price: "5.99",
-              quantity: 2,
-              subtotal: 11.98
-            },
-            {
-              id: 2,
-              product_id: 3,
-              product_name: "Vitamin D3 1000IU",
-              price: "18.00",
-              quantity: 1,
-              subtotal: 18.00
-            }
-          ]
-        },
-        {
-          id: 2,
-          customer_id: 2,
-          customer_name: "Jane Smith",
-          customer_email: "jane.smith@email.com",
-          order_date: "2024-01-16T14:15:00Z",
-          status: "processing",
-          total_amount: 12.50,
-          payment_method: "insurance",
-          notes: "Prescription order - verify insurance",
-          items: [
-            {
-              id: 3,
-              product_id: 2,
-              product_name: "Amoxicillin 250mg",
-              price: "12.50",
-              quantity: 1,
-              subtotal: 12.50
-            }
-          ]
-        },
-        {
-          id: 3,
-          customer_id: 3,
-          customer_name: "Robert Johnson",
-          customer_email: "robert.j@email.com",
-          order_date: "2024-01-17T09:45:00Z",
-          status: "pending",
-          total_amount: 23.99,
-          payment_method: "cash",
-          items: [
-            {
-              id: 4,
-              product_id: 1,
-              product_name: "Paracetamol 500mg",
-              price: "5.99",
-              quantity: 4,
-              subtotal: 23.96
-            }
-          ]
-        }
-      ] as Order[]
-    },
+  // API hooks
+  const { data: orders = [], isLoading: ordersLoading, error: ordersError } = useOrders({
+    ...(searchTerm && { search: searchTerm }),
+    ...(statusFilter !== "all" && { status: statusFilter as Order['status'] }),
+    ...(typeFilter !== "all" && { order_type: typeFilter as Order['order_type'] })
   })
+  
+  const orderStats = useOrderStats()
 
-  const { data: customers = [] } = useQuery({
-    queryKey: ["customers"],
-    queryFn: async () => {
-      // Mock data matching customers page structure
-      return [
-        {
-          id: 1,
-          first_name: "John",
-          last_name: "Doe",
-          email: "john.doe@email.com",
-          phone: "+1-555-0123",
-          customer_type: "vip"
-        },
-        {
-          id: 2,
-          first_name: "Jane",
-          last_name: "Smith",
-          email: "jane.smith@email.com",
-          phone: "+1-555-0124",
-          customer_type: "regular"
-        },
-        {
-          id: 3,
-          first_name: "Robert",
-          last_name: "Johnson",
-          email: "robert.j@email.com",
-          phone: "+1-555-0125",
-          customer_type: "vip"
-        }
-      ] as Customer[]
-    },
-  })
+  const { data: customers = [], isLoading: customersLoading } = useCustomersOnly()
+  const { data: products = [], isLoading: productsLoading } = useProducts()
 
-  const { data: products = [] } = useQuery({
-    queryKey: ["products"],
-    queryFn: async () => {
-      // Mock data matching products page structure
-      return [
-        {
-          id: 1,
-          name: "Paracetamol 500mg",
-          price: "5.99",
-          stock: 150,
-          requires_prescription: false
-        },
-        {
-          id: 2,
-          name: "Amoxicillin 250mg",
-          price: "12.50",
-          stock: 75,
-          requires_prescription: true
-        },
-        {
-          id: 3,
-          name: "Vitamin D3 1000IU",
-          price: "18.00",
-          stock: 200,
-          requires_prescription: false
-        }
-      ] as Product[]
-    },
-  })
-
-  const createOrder = useMutation({
-    mutationFn: (data: typeof formData & { items: any[] }) => {
-      // Replace with actual API call
-      const total = cartItems.reduce((sum, item) => sum + (parseFloat(item.price) * item.quantity), 0)
-      const customer = customers.find(c => c.id === parseInt(data.customer_id))
-      return Promise.resolve({ 
-        ...data, 
-        id: Date.now(), 
-        customer_name: customer ? `${customer.first_name} ${customer.last_name}` : "",
-        customer_email: customer?.email || "",
-        order_date: new Date().toISOString(),
-        status: "pending",
-        total_amount: total,
-        items: cartItems.map((item, index) => ({
-          id: Date.now() + index,
-          product_id: item.product_id,
-          product_name: item.product_name,
-          price: item.price,
-          quantity: item.quantity,
-          subtotal: parseFloat(item.price) * item.quantity
-        }))
-      })
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["orders"] })
-      setShowDialog(false)
-      resetForm()
-    },
-  })
-
-  const updateOrder = useMutation({
-    mutationFn: ({ id, ...data }: { id: number } & Partial<Order>) => {
-      // Replace with actual API call
-      return Promise.resolve({ id, ...data })
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["orders"] })
-      setEditingOrder(null)
-      resetForm()
-    },
-  })
-
-  const updateOrderStatus = useMutation({
-    mutationFn: ({ id, status }: { id: number, status: Order["status"] }) => {
-      // Replace with actual API call
-      return Promise.resolve()
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["orders"] })
-    },
-  })
-
-  const deleteOrder = useMutation({
-    mutationFn: (id: number) => {
-      // Replace with actual API call
-      return Promise.resolve()
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["orders"] })
-    },
-  })
-
+  // Utility functions
   const resetForm = () => {
     setFormData({
       customer_id: "",
+      order_type: "in_store",
       payment_method: "cash",
       notes: ""
     })
     setCartItems([])
+  }
+
+  const createOrderMutation = useCreateOrder()
+  
+  const createOrder = {
+    mutate: (data: any) => {
+      createOrderMutation.mutate({
+        customer: parseInt(data.customer_id),
+        order_type: data.order_type,
+        payment_method: data.payment_method,
+        items: cartItems.map(item => ({
+          product: item.product_id,
+          quantity: item.quantity
+        })),
+        notes: data.notes,
+        branch: 1 // Default branch - should be dynamic in production
+      })
+    },
+    isPending: createOrderMutation.isPending
+  }
+  
+  // Handle successful order creation
+  if (createOrderMutation.isSuccess && !createOrderMutation.isPending) {
+    setShowDialog(false)
+    resetForm()
+  }
+
+  const updateOrderMutation = useUpdateOrder()
+  
+  const updateOrder = {
+    mutate: (data: any) => {
+      updateOrderMutation.mutate({
+        id: data.id,
+        customer: parseInt(data.customer_id),
+        payment_method: data.payment_method,
+        notes: data.notes
+      })
+    },
+    isPending: updateOrderMutation.isPending
+  }
+  
+  // Handle successful order update
+  if (updateOrderMutation.isSuccess && !updateOrderMutation.isPending) {
+    setEditingOrder(null)
+    resetForm()
+  }
+
+  const transitionOrderMutation = useTransitionOrder()
+  
+  const updateOrderStatus = {
+    mutate: ({ id, status }: { id: number, status: Order["status"] }) => {
+      transitionOrderMutation.mutate({ id, status })
+    },
+    isPending: transitionOrderMutation.isPending
+  }
+
+  const deleteOrderMutation = useDeleteOrder()
+  
+  const deleteOrder = {
+    mutate: (id: number) => {
+      deleteOrderMutation.mutate(id)
+    },
+    isPending: deleteOrderMutation.isPending
   }
 
   const addToCart = (product: Product) => {
@@ -373,16 +211,17 @@ export default function OrdersPage() {
   const handleEdit = (order: Order) => {
     setEditingOrder(order)
     setFormData({
-      customer_id: order.customer_id.toString(),
-      payment_method: order.payment_method,
+      customer_id: order.customer.toString(),
+      order_type: order.order_type,
+      payment_method: order.payment_method || "cash",
       notes: order.notes || ""
     })
-    setCartItems(order.items.map(item => ({
-      product_id: item.product_id,
-      product_name: item.product_name,
-      price: item.price,
+    setCartItems(order.items?.map(item => ({
+      product_id: item.product,
+      product_name: item.product_name || 'Unknown Product',
+      price: item.unit_price,
       quantity: item.quantity
-    })))
+    })) || [])
     setShowDialog(true)
   }
 
@@ -395,17 +234,12 @@ export default function OrdersPage() {
     return cartItems.reduce((total, item) => total + parseFloat(item.price) * item.quantity, 0).toFixed(2)
   }
 
-  const filteredOrders = orders.filter((order: Order) => {
-    const matchesSearch = order.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         order.id.toString().includes(searchTerm)
-    const matchesStatus = statusFilter === "all" || order.status === statusFilter
-    return matchesSearch && matchesStatus
-  })
+  const filteredOrders = orders
 
-  const pendingOrders = orders.filter(o => o.status === "pending")
-  const processingOrders = orders.filter(o => o.status === "processing")
-  const completedOrders = orders.filter(o => o.status === "completed")
-  const totalRevenue = orders.filter(o => o.status === "completed").reduce((sum, o) => sum + o.total_amount, 0)
+  const pendingOrders = orderStats.pendingOrders
+  const processingOrders = orderStats.processingOrders  
+  const completedOrders = orderStats.completedOrders
+  const totalRevenue = orderStats.totalRevenue
 
   const getStatusIcon = (status: Order["status"]) => {
     switch (status) {
@@ -451,7 +285,7 @@ export default function OrdersPage() {
             <ShoppingCart className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{orders.length}</div>
+            <div className="text-2xl font-bold">{orderStats.totalOrders}</div>
           </CardContent>
         </Card>
 
@@ -461,7 +295,7 @@ export default function OrdersPage() {
             <Clock className="h-4 w-4 text-orange-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-orange-600">{pendingOrders.length}</div>
+            <div className="text-2xl font-bold text-orange-600">{pendingOrders}</div>
           </CardContent>
         </Card>
 
@@ -471,7 +305,7 @@ export default function OrdersPage() {
             <CheckCircle className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{completedOrders.length}</div>
+            <div className="text-2xl font-bold text-green-600">{completedOrders}</div>
           </CardContent>
         </Card>
 
@@ -481,7 +315,7 @@ export default function OrdersPage() {
             <DollarSign className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">${totalRevenue.toFixed(2)}</div>
+            <div className="text-2xl font-bold text-green-600">₫{totalRevenue.toLocaleString('vi-VN')}</div>
           </CardContent>
         </Card>
       </div>
@@ -535,13 +369,13 @@ export default function OrdersPage() {
                 <TableCell>
                   <div className="font-medium">#{order.id}</div>
                   <div className="text-sm text-muted-foreground">
-                    {order.items.length} item{order.items.length !== 1 ? 's' : ''}
+                    {order.items?.length || 0} item{(order.items?.length || 0) !== 1 ? 's' : ''}
                   </div>
                 </TableCell>
                 <TableCell>
                   <div>
-                    <div className="font-medium">{order.customer_name}</div>
-                    <div className="text-sm text-muted-foreground">{order.customer_email}</div>
+                    <div className="font-medium">{order.customer_name || 'Unknown Customer'}</div>
+                    <div className="text-sm text-muted-foreground">{customers.find(c => c.id === order.customer)?.email || 'No email'}</div>
                   </div>
                 </TableCell>
                 <TableCell>
@@ -561,11 +395,11 @@ export default function OrdersPage() {
                 </TableCell>
                 <TableCell>
                   <Badge variant="outline">
-                    {order.payment_method.charAt(0).toUpperCase() + order.payment_method.slice(1)}
+                    {order.payment_method ? order.payment_method.charAt(0).toUpperCase() + order.payment_method.slice(1) : 'Unknown'}
                   </Badge>
                 </TableCell>
                 <TableCell>
-                  <div className="font-medium">${order.total_amount.toFixed(2)}</div>
+                  <div className="font-medium">₫{parseFloat(order.total_amount).toLocaleString('vi-VN')}</div>
                 </TableCell>
                 <TableCell>
                   <div className="flex gap-2">
@@ -641,11 +475,17 @@ export default function OrdersPage() {
                     <SelectValue placeholder="Select customer..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {customers.map((customer) => (
-                      <SelectItem key={customer.id} value={customer.id.toString()}>
-                        {customer.first_name} {customer.last_name} ({customer.customer_type})
-                      </SelectItem>
-                    ))}
+                    {customersLoading ? (
+                      <SelectItem value="" disabled>Loading customers...</SelectItem>
+                    ) : customers.length > 0 ? (
+                      customers.map((customer) => (
+                        <SelectItem key={customer.id} value={customer.id.toString()}>
+                          {customer.first_name} {customer.last_name} ({customer.role === 'vip_customer' ? 'VIP' : 'Regular'})
+                        </SelectItem>
+                      ))
+                    ) : (
+                      <SelectItem value="" disabled>No customers found</SelectItem>
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -672,25 +512,35 @@ export default function OrdersPage() {
             <div className="space-y-2">
               <Label>Add Products</Label>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-40 overflow-y-auto border rounded p-2">
-                {products.map((product) => (
-                  <div key={product.id} className="flex justify-between items-center p-2 border rounded">
-                    <div className="flex-1">
-                      <div className="font-medium">{product.name}</div>
-                      <div className="text-sm text-muted-foreground">
-                        ${product.price} | Stock: {product.stock}
-                        {product.requires_prescription && " | Rx Required"}
-                      </div>
-                    </div>
-                    <Button 
-                      type="button"
-                      size="sm" 
-                      onClick={() => addToCart(product)}
-                      disabled={product.stock === 0}
-                    >
-                      Add
-                    </Button>
+                {productsLoading ? (
+                  <div className="col-span-full text-center py-4 text-muted-foreground">
+                    Loading products...
                   </div>
-                ))}
+                ) : products.length > 0 ? (
+                  products.map((product) => (
+                    <div key={product.id} className="flex justify-between items-center p-2 border rounded">
+                      <div className="flex-1">
+                        <div className="font-medium">{product.name}</div>
+                        <div className="text-sm text-muted-foreground">
+                          ₫{parseFloat(product.price).toLocaleString('vi-VN')} | Stock: {product.stock}
+                          {product.requires_prescription && " | Rx Required"}
+                        </div>
+                      </div>
+                      <Button 
+                        type="button"
+                        size="sm" 
+                        onClick={() => addToCart(product)}
+                        disabled={product.stock === 0}
+                      >
+                        Add
+                      </Button>
+                    </div>
+                  ))
+                ) : (
+                  <div className="col-span-full text-center py-4 text-muted-foreground">
+                    No products found
+                  </div>
+                )}
               </div>
             </div>
 
@@ -720,7 +570,7 @@ export default function OrdersPage() {
                           <Plus className="h-3 w-3" />
                         </Button>
                         <span className="w-16 text-right">
-                          ${(parseFloat(item.price) * item.quantity).toFixed(2)}
+                          ₫{(parseFloat(item.price) * item.quantity).toLocaleString('vi-VN')}
                         </span>
                         <Button 
                           type="button"
@@ -734,7 +584,7 @@ export default function OrdersPage() {
                     </div>
                   ))}
                   <div className="text-right font-bold text-lg border-t pt-2">
-                    Total: ${calculateTotal()}
+                    Total: ₫{parseFloat(calculateTotal()).toLocaleString('vi-VN')}
                   </div>
                 </div>
               </div>
@@ -785,8 +635,8 @@ export default function OrdersPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label className="text-sm font-medium text-muted-foreground">Customer</Label>
-                  <div className="font-medium">{viewingOrder.customer_name}</div>
-                  <div className="text-sm text-muted-foreground">{viewingOrder.customer_email}</div>
+                  <div className="font-medium">{viewingOrder.customer_name || 'Unknown Customer'}</div>
+                  <div className="text-sm text-muted-foreground">{customers.find(c => c.id === viewingOrder.customer)?.email || 'No email'}</div>
                 </div>
                 <div>
                   <Label className="text-sm font-medium text-muted-foreground">Order Date</Label>
@@ -812,7 +662,7 @@ export default function OrdersPage() {
                 <div>
                   <Label className="text-sm font-medium text-muted-foreground">Payment Method</Label>
                   <Badge variant="outline" className="mt-1">
-                    {viewingOrder.payment_method.charAt(0).toUpperCase() + viewingOrder.payment_method.slice(1)}
+                    {viewingOrder.payment_method ? viewingOrder.payment_method.charAt(0).toUpperCase() + viewingOrder.payment_method.slice(1) : 'Unknown'}
                   </Badge>
                 </div>
               </div>
@@ -820,20 +670,20 @@ export default function OrdersPage() {
               <div>
                 <Label className="text-sm font-medium text-muted-foreground">Order Items</Label>
                 <div className="mt-2 space-y-2">
-                  {viewingOrder.items.map((item) => (
+                  {viewingOrder.items?.map((item) => (
                     <div key={item.id} className="flex justify-between items-center p-2 border rounded">
                       <div>
-                        <div className="font-medium">{item.product_name}</div>
+                        <div className="font-medium">{item.product_name || 'Unknown Product'}</div>
                         <div className="text-sm text-muted-foreground">
-                          ${item.price} × {item.quantity}
+                          ₫{parseFloat(item.unit_price).toLocaleString('vi-VN')} × {item.quantity}
                         </div>
                       </div>
-                      <div className="font-medium">${item.subtotal.toFixed(2)}</div>
+                      <div className="font-medium">₫{(parseFloat(item.unit_price) * item.quantity).toLocaleString('vi-VN')}</div>
                     </div>
                   ))}
                   <div className="flex justify-between items-center p-2 bg-muted rounded font-bold">
                     <span>Total</span>
-                    <span>${viewingOrder.total_amount.toFixed(2)}</span>
+                    <span>₫{parseFloat(viewingOrder.total_amount).toLocaleString('vi-VN')}</span>
                   </div>
                 </div>
               </div>

@@ -1,0 +1,1117 @@
+import { renderHook, waitFor } from '@testing-library/react'
+import { QueryClient } from '@tanstack/react-query'
+import { server } from '../mocks/server'
+import { http, HttpResponse } from 'msw'
+import { createTestQueryClient } from '../utils/test-utils'
+import { queryKeys } from '@/lib/queryKeys'
+import type { Medicine, Supplement, MedicalDevice, Product } from '@/lib/types'
+import {
+  useMedicines,
+  useMedicine,
+  usePrescriptionMedicines,
+  useOTCMedicines,
+  useCreateMedicine,
+  useUpdateMedicine,
+  useDeleteMedicine,
+  useSupplements,
+  useSupplement,
+  useCreateSupplement,
+  useUpdateSupplement,
+  useDeleteSupplement,
+  useMedicalDevices,
+  useMedicalDevice,
+  useCreateMedicalDevice,
+  useUpdateMedicalDevice,
+  useDeleteMedicalDevice,
+  useProducts,
+  useProduct,
+  useSearchProducts,
+  useLowStockProducts,
+  useMedicineStats,
+  useSupplementStats,
+  useMedicalDeviceStats,
+  useProductStats,
+} from '@/hooks/api/useProducts'
+import { createWrapper } from '../utils'
+
+// Mock data
+const mockMedicine: Medicine = {
+  id: 1,
+  name: 'Paracetamol',
+  product_type: 'medicine',
+  price: '10.50',
+  requires_prescription: false,
+  created_at: '2024-01-01T00:00:00Z',
+  updated_at: '2024-01-01T00:00:00Z',
+  active_ingredient: 'Paracetamol',
+  dosage_form: 'tablet',
+  strength: '500mg',
+  is_prescription: false,
+  stock: 100,
+  drug_schedule: 'OTC',
+  therapeutic_class: 'Analgesic',
+  manufacturer: 'PharmaCorp',
+  description: 'Pain relief medication',
+}
+
+const mockPrescriptionMedicine: Medicine = {
+  ...mockMedicine,
+  id: 2,
+  name: 'Amoxicillin',
+  active_ingredient: 'Amoxicillin',
+  is_prescription: true,
+  requires_prescription: true,
+  drug_schedule: 'Schedule H',
+  therapeutic_class: 'Antibiotic',
+  stock: 50,
+}
+
+const mockSupplement: Supplement = {
+  id: 3,
+  name: 'Vitamin D3',
+  product_type: 'supplement',
+  price: '25.00',
+  requires_prescription: false,
+  created_at: '2024-01-01T00:00:00Z',
+  updated_at: '2024-01-01T00:00:00Z',
+  supplement_type: 'vitamin',
+  ingredients: ['Vitamin D3', 'Olive Oil'],
+  age_group: 'adult',
+  stock: 75,
+  manufacturer: 'SupplementCorp',
+  description: 'Vitamin D supplement',
+}
+
+const mockMedicalDevice: MedicalDevice = {
+  id: 4,
+  name: 'Blood Pressure Monitor',
+  product_type: 'medical_device',
+  price: '150.00',
+  requires_prescription: false,
+  created_at: '2024-01-01T00:00:00Z',
+  updated_at: '2024-01-01T00:00:00Z',
+  device_type: 'diagnostic',
+  device_class: 'II',
+  stock: 25,
+  manufacturer: 'MedDevice Inc',
+  description: 'Digital blood pressure monitor',
+}
+
+const mockMedicines: Medicine[] = [mockMedicine, mockPrescriptionMedicine]
+const mockSupplements: Supplement[] = [mockSupplement]
+const mockMedicalDevices: MedicalDevice[] = [mockMedicalDevice]
+const mockProducts: Product[] = [...mockMedicines, ...mockSupplements, ...mockMedicalDevices]
+
+const API_BASE = 'https://longchau-pms.onrender.com/api'
+
+describe('useProducts Hooks', () => {
+  let queryClient: QueryClient
+
+  beforeEach(() => {
+    queryClient = createTestQueryClient()
+  })
+
+  afterEach(() => {
+    queryClient.clear()
+  })
+
+  describe('Medicine Hooks', () => {
+    describe('useMedicines', () => {
+      it('should fetch medicines successfully', async () => {
+        server.use(
+          http.get(`${API_BASE}/medicines/`, () => {
+            return HttpResponse.json(mockMedicines)
+          })
+        )
+
+        const { result } = renderHook(() => useMedicines(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(mockMedicines)
+        expect(result.current.isLoading).toBe(false)
+        expect(result.current.error).toBe(null)
+      })
+
+      it('should fetch medicines with filters', async () => {
+        const filters = { is_prescription: true, dosage_form: 'tablet' }
+        
+        server.use(
+          http.get(`${API_BASE}/medicines/`, ({ request }) => {
+            const url = new URL(request.url)
+            expect(url.searchParams.get('is_prescription')).toBe('true')
+            expect(url.searchParams.get('dosage_form')).toBe('tablet')
+            return HttpResponse.json([mockPrescriptionMedicine])
+          })
+        )
+
+        const { result } = renderHook(() => useMedicines(filters), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockPrescriptionMedicine])
+      })
+
+      it('should use correct query key', () => {
+        const filters = { is_prescription: true }
+        const { result } = renderHook(() => useMedicines(filters), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        const expectedKey = queryKeys.medicines.list(filters)
+        expect(queryClient.getQueryCache().findAll({ queryKey: expectedKey })).toHaveLength(1)
+      })
+    })
+
+    describe('useMedicine', () => {
+      it('should fetch single medicine successfully', async () => {
+        const medicineId = 1
+        server.use(
+          http.get(`${API_BASE}/medicines/${medicineId}/`, () => {
+            return HttpResponse.json(mockMedicine)
+          })
+        )
+
+        const { result } = renderHook(() => useMedicine(medicineId), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(mockMedicine)
+      })
+
+      it('should not run query when id is invalid', () => {
+        const { result } = renderHook(() => useMedicine(0), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        expect(result.current.data).toBeUndefined()
+        expect(result.current.isPending).toBe(false)
+        expect(result.current.fetchStatus).toBe('idle')
+      })
+    })
+
+    describe('usePrescriptionMedicines', () => {
+      it('should fetch prescription medicines', async () => {
+        server.use(
+          http.get(`${API_BASE}/medicines/prescription/`, () => {
+            return HttpResponse.json([mockPrescriptionMedicine])
+          })
+        )
+
+        const { result } = renderHook(() => usePrescriptionMedicines(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockPrescriptionMedicine])
+      })
+    })
+
+    describe('useOTCMedicines', () => {
+      it('should fetch OTC medicines', async () => {
+        server.use(
+          http.get(`${API_BASE}/medicines/otc/`, () => {
+            return HttpResponse.json([mockMedicine])
+          })
+        )
+
+        const { result } = renderHook(() => useOTCMedicines(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockMedicine])
+      })
+    })
+
+    describe('useCreateMedicine', () => {
+      it('should create medicine successfully', async () => {
+        const newMedicineData = {
+          name: 'Ibuprofen',
+          price: '8.50',
+          active_ingredient: 'Ibuprofen',
+          dosage_form: 'tablet',
+          strength: '400mg',
+          is_prescription: false,
+        }
+
+        const createdMedicine = {
+          ...mockMedicine,
+          id: 999,
+          ...newMedicineData,
+        }
+
+        server.use(
+          http.post(`${API_BASE}/medicines/`, async ({ request }) => {
+            const body = await request.json()
+            expect(body).toMatchObject(newMedicineData)
+            return HttpResponse.json(createdMedicine, { status: 201 })
+          })
+        )
+
+        const { result } = renderHook(() => useCreateMedicine(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        result.current.mutate(newMedicineData)
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(createdMedicine)
+      })
+
+      it('should handle optimistic updates', async () => {
+        // Pre-populate cache
+        queryClient.setQueryData(queryKeys.medicines.lists(), mockMedicines)
+
+        const newMedicineData = {
+          name: 'Ibuprofen',
+          price: '8.50',
+          active_ingredient: 'Ibuprofen',
+          dosage_form: 'tablet',
+          strength: '400mg',
+          is_prescription: false,
+        }
+
+        server.use(
+          http.post(`${API_BASE}/medicines/`, async () => {
+            await new Promise(resolve => setTimeout(resolve, 100))
+            return HttpResponse.json({ ...mockMedicine, id: 999, ...newMedicineData }, { status: 201 })
+          })
+        )
+
+        const { result } = renderHook(() => useCreateMedicine(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        result.current.mutate(newMedicineData)
+
+        // Should have optimistic update immediately
+        const cacheData = queryClient.getQueryData(queryKeys.medicines.lists()) as Medicine[]
+        expect(cacheData.length).toBe(mockMedicines.length + 1)
+        expect(cacheData[cacheData.length - 1].name).toBe(newMedicineData.name)
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+      })
+
+      it('should rollback on error', async () => {
+        // Pre-populate cache
+        queryClient.setQueryData(queryKeys.medicines.lists(), mockMedicines)
+
+        const newMedicineData = {
+          name: 'Ibuprofen',
+          price: '8.50',
+          active_ingredient: 'Ibuprofen',
+          dosage_form: 'tablet',
+          strength: '400mg',
+          is_prescription: false,
+        }
+
+        server.use(
+          http.post(`${API_BASE}/medicines/`, () => {
+            return new HttpResponse(null, { status: 500 })
+          })
+        )
+
+        const { result } = renderHook(() => useCreateMedicine(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        result.current.mutate(newMedicineData)
+
+        await waitFor(() => {
+          expect(result.current.isError).toBe(true)
+        })
+
+        // Should rollback to original data
+        const cacheData = queryClient.getQueryData(queryKeys.medicines.lists())
+        expect(cacheData).toEqual(mockMedicines)
+      })
+    })
+
+    describe('useUpdateMedicine', () => {
+      it('should update medicine successfully', async () => {
+        const medicineId = 1
+        const updateData = { price: '12.00' }
+        const updatedMedicine = { ...mockMedicine, ...updateData }
+
+        server.use(
+          http.patch(`${API_BASE}/medicines/${medicineId}/`, async ({ request }) => {
+            const body = await request.json()
+            expect(body).toMatchObject(updateData)
+            return HttpResponse.json(updatedMedicine)
+          })
+        )
+
+        const { result } = renderHook(() => useUpdateMedicine(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        result.current.mutate({ id: medicineId, ...updateData })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(updatedMedicine)
+      })
+
+      it('should update cache on success', async () => {
+        const medicineId = 1
+        const updateData = { price: '12.00' }
+        const updatedMedicine = { ...mockMedicine, ...updateData }
+
+        // Pre-populate cache
+        queryClient.setQueryData(queryKeys.medicines.detail(medicineId), mockMedicine)
+        queryClient.setQueryData(queryKeys.medicines.lists(), mockMedicines)
+
+        server.use(
+          http.patch(`${API_BASE}/medicines/${medicineId}/`, () => {
+            return HttpResponse.json(updatedMedicine)
+          })
+        )
+
+        const { result } = renderHook(() => useUpdateMedicine(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        result.current.mutate({ id: medicineId, ...updateData })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        // Check that cache was updated
+        const detailCache = queryClient.getQueryData(queryKeys.medicines.detail(medicineId))
+        expect(detailCache).toEqual(updatedMedicine)
+
+        const listCache = queryClient.getQueryData(queryKeys.medicines.lists()) as Medicine[]
+        const updatedInList = listCache.find(m => m.id === medicineId)
+        expect(updatedInList).toEqual(updatedMedicine)
+      })
+    })
+
+    describe('useDeleteMedicine', () => {
+      it('should delete medicine successfully', async () => {
+        const medicineId = 1
+
+        server.use(
+          http.delete(`${API_BASE}/medicines/${medicineId}/`, () => {
+            return new HttpResponse(null, { status: 204 })
+          })
+        )
+
+        const { result } = renderHook(() => useDeleteMedicine(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        result.current.mutate(medicineId)
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+      })
+
+      it('should handle optimistic deletion', async () => {
+        const medicineId = 1
+
+        // Pre-populate cache
+        queryClient.setQueryData(queryKeys.medicines.lists(), mockMedicines)
+
+        server.use(
+          http.delete(`${API_BASE}/medicines/${medicineId}/`, async () => {
+            await new Promise(resolve => setTimeout(resolve, 100))
+            return new HttpResponse(null, { status: 204 })
+          })
+        )
+
+        const { result } = renderHook(() => useDeleteMedicine(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        result.current.mutate(medicineId)
+
+        // Should have optimistic deletion immediately
+        const cacheData = queryClient.getQueryData(queryKeys.medicines.lists()) as Medicine[]
+        expect(cacheData.find(m => m.id === medicineId)).toBeUndefined()
+        expect(cacheData.length).toBe(mockMedicines.length - 1)
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+      })
+    })
+  })
+
+  describe('Supplement Hooks', () => {
+    describe('useSupplements', () => {
+      it('should fetch supplements successfully', async () => {
+        server.use(
+          http.get(`${API_BASE}/supplements/`, () => {
+            return HttpResponse.json(mockSupplements)
+          })
+        )
+
+        const { result } = renderHook(() => useSupplements(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(mockSupplements)
+      })
+
+      it('should fetch supplements with filters', async () => {
+        const filters = { supplement_type: 'vitamin', age_group: 'adult' }
+        
+        server.use(
+          http.get(`${API_BASE}/supplements/`, ({ request }) => {
+            const url = new URL(request.url)
+            expect(url.searchParams.get('supplement_type')).toBe('vitamin')
+            expect(url.searchParams.get('age_group')).toBe('adult')
+            return HttpResponse.json([mockSupplement])
+          })
+        )
+
+        const { result } = renderHook(() => useSupplements(filters), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockSupplement])
+      })
+    })
+
+    describe('useSupplement', () => {
+      it('should fetch single supplement successfully', async () => {
+        const supplementId = 3
+        server.use(
+          http.get(`${API_BASE}/supplements/${supplementId}/`, () => {
+            return HttpResponse.json(mockSupplement)
+          })
+        )
+
+        const { result } = renderHook(() => useSupplement(supplementId), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(mockSupplement)
+      })
+    })
+
+    describe('useCreateSupplement', () => {
+      it('should create supplement successfully', async () => {
+        const newSupplementData = {
+          name: 'Omega-3',
+          price: '30.00',
+          supplement_type: 'other' as const,
+          ingredients: ['EPA', 'DHA'],
+        }
+
+        const createdSupplement = {
+          ...mockSupplement,
+          id: 999,
+          ...newSupplementData,
+        }
+
+        server.use(
+          http.post(`${API_BASE}/supplements/`, async ({ request }) => {
+            const body = await request.json()
+            expect(body).toMatchObject(newSupplementData)
+            return HttpResponse.json(createdSupplement, { status: 201 })
+          })
+        )
+
+        const { result } = renderHook(() => useCreateSupplement(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        result.current.mutate(newSupplementData)
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(createdSupplement)
+      })
+    })
+  })
+
+  describe('Medical Device Hooks', () => {
+    describe('useMedicalDevices', () => {
+      it('should fetch medical devices successfully', async () => {
+        server.use(
+          http.get(`${API_BASE}/medical-devices/`, () => {
+            return HttpResponse.json(mockMedicalDevices)
+          })
+        )
+
+        const { result } = renderHook(() => useMedicalDevices(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(mockMedicalDevices)
+      })
+
+      it('should fetch medical devices with filters', async () => {
+        const filters = { device_type: 'diagnostic', device_class: 'II' }
+        
+        server.use(
+          http.get(`${API_BASE}/medical-devices/`, ({ request }) => {
+            const url = new URL(request.url)
+            expect(url.searchParams.get('device_type')).toBe('diagnostic')
+            expect(url.searchParams.get('device_class')).toBe('II')
+            return HttpResponse.json([mockMedicalDevice])
+          })
+        )
+
+        const { result } = renderHook(() => useMedicalDevices(filters), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockMedicalDevice])
+      })
+    })
+
+    describe('useMedicalDevice', () => {
+      it('should fetch single medical device successfully', async () => {
+        const deviceId = 4
+        server.use(
+          http.get(`${API_BASE}/medical-devices/${deviceId}/`, () => {
+            return HttpResponse.json(mockMedicalDevice)
+          })
+        )
+
+        const { result } = renderHook(() => useMedicalDevice(deviceId), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(mockMedicalDevice)
+      })
+    })
+
+    describe('useCreateMedicalDevice', () => {
+      it('should create medical device successfully', async () => {
+        const newDeviceData = {
+          name: 'Thermometer',
+          price: '45.00',
+          device_type: 'diagnostic' as const,
+          device_class: 'I' as const,
+        }
+
+        const createdDevice = {
+          ...mockMedicalDevice,
+          id: 999,
+          ...newDeviceData,
+        }
+
+        server.use(
+          http.post(`${API_BASE}/medical-devices/`, async ({ request }) => {
+            const body = await request.json()
+            expect(body).toMatchObject(newDeviceData)
+            return HttpResponse.json(createdDevice, { status: 201 })
+          })
+        )
+
+        const { result } = renderHook(() => useCreateMedicalDevice(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        result.current.mutate(newDeviceData)
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(createdDevice)
+      })
+    })
+  })
+
+  describe('Unified Product Hooks', () => {
+    describe('useProducts', () => {
+      it('should fetch all products successfully', async () => {
+        server.use(
+          http.get(`${API_BASE}/products/`, () => {
+            return HttpResponse.json(mockProducts)
+          })
+        )
+
+        const { result } = renderHook(() => useProducts(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(mockProducts)
+      })
+
+      it('should fetch products with filters', async () => {
+        const filters = { product_type: 'medicine', requires_prescription: false }
+        
+        server.use(
+          http.get(`${API_BASE}/products/`, ({ request }) => {
+            const url = new URL(request.url)
+            expect(url.searchParams.get('product_type')).toBe('medicine')
+            expect(url.searchParams.get('requires_prescription')).toBe('false')
+            return HttpResponse.json([mockMedicine])
+          })
+        )
+
+        const { result } = renderHook(() => useProducts(filters), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockMedicine])
+      })
+    })
+
+    describe('useProduct', () => {
+      it('should fetch single product by type', async () => {
+        const productId = 1
+        const productType = 'medicine'
+        
+        server.use(
+          http.get(`${API_BASE}/medicines/${productId}/`, () => {
+            return HttpResponse.json(mockMedicine)
+          })
+        )
+
+        const { result } = renderHook(() => useProduct(productId, productType), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(mockMedicine)
+      })
+
+      it('should not run query when parameters are invalid', () => {
+        const { result } = renderHook(() => useProduct(0, 'medicine'), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        expect(result.current.data).toBeUndefined()
+        expect(result.current.isPending).toBe(false)
+        expect(result.current.fetchStatus).toBe('idle')
+      })
+    })
+
+    describe('useSearchProducts', () => {
+      it('should search products successfully', async () => {
+        const query = 'paracetamol'
+        
+        server.use(
+          http.get(`${API_BASE}/products/search/`, ({ request }) => {
+            const url = new URL(request.url)
+            expect(url.searchParams.get('q')).toBe(query)
+            return HttpResponse.json([mockMedicine])
+          })
+        )
+
+        const { result } = renderHook(() => useSearchProducts(query), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockMedicine])
+      })
+
+      it('should search products by type', async () => {
+        const query = 'vitamin'
+        const productType = 'supplement'
+        
+        server.use(
+          http.get(`${API_BASE}/products/search/`, ({ request }) => {
+            const url = new URL(request.url)
+            expect(url.searchParams.get('q')).toBe(query)
+            expect(url.searchParams.get('product_type')).toBe(productType)
+            return HttpResponse.json([mockSupplement])
+          })
+        )
+
+        const { result } = renderHook(() => useSearchProducts(query, productType), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockSupplement])
+      })
+
+      it('should not run query when query is empty', () => {
+        const { result } = renderHook(() => useSearchProducts(''), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        expect(result.current.data).toBeUndefined()
+        expect(result.current.isPending).toBe(false)
+        expect(result.current.fetchStatus).toBe('idle')
+      })
+    })
+
+    describe('useLowStockProducts', () => {
+      it('should fetch low stock products', async () => {
+        const lowStockProducts = [
+          { ...mockMedicine, stock: 5 },
+          { ...mockSupplement, stock: 8 },
+        ]
+        
+        server.use(
+          http.get(`${API_BASE}/products/low_stock/`, () => {
+            return HttpResponse.json(lowStockProducts)
+          })
+        )
+
+        const { result } = renderHook(() => useLowStockProducts(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(lowStockProducts)
+      })
+    })
+  })
+
+  describe('Statistics Hooks', () => {
+    describe('useMedicineStats', () => {
+      it('should calculate medicine statistics', async () => {
+        server.use(
+          http.get(`${API_BASE}/medicines/`, () => {
+            return HttpResponse.json(mockMedicines)
+          })
+        )
+
+        const { result } = renderHook(() => useMedicineStats(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isLoading).toBe(false)
+        })
+
+        expect(result.current.totalMedicines).toBe(2)
+        expect(result.current.prescriptionMedicines).toBe(1)
+        expect(result.current.otcMedicines).toBe(1)
+        expect(result.current.scheduledMedicines).toBe(1) // Schedule H
+        expect(result.current.lowStockMedicines).toBe(0) // All above threshold of 10
+      })
+
+      it('should return default values when no data', () => {
+        const { result } = renderHook(() => useMedicineStats(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        expect(result.current.totalMedicines).toBe(0)
+        expect(result.current.prescriptionMedicines).toBe(0)
+        expect(result.current.otcMedicines).toBe(0)
+        expect(result.current.scheduledMedicines).toBe(0)
+        expect(result.current.lowStockMedicines).toBe(0)
+      })
+    })
+
+    describe('useSupplementStats', () => {
+      it('should calculate supplement statistics', async () => {
+        const supplementsWithVariety = [
+          mockSupplement,
+          { ...mockSupplement, id: 5, supplement_type: 'mineral' as const },
+          { ...mockSupplement, id: 6, supplement_type: 'herbal' as const },
+          { ...mockSupplement, id: 7, supplement_type: 'protein' as const },
+        ]
+
+        server.use(
+          http.get(`${API_BASE}/supplements/`, () => {
+            return HttpResponse.json(supplementsWithVariety)
+          })
+        )
+
+        const { result } = renderHook(() => useSupplementStats(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isLoading).toBe(false)
+        })
+
+        expect(result.current.totalSupplements).toBe(4)
+        expect(result.current.vitaminSupplements).toBe(1)
+        expect(result.current.mineralSupplements).toBe(1)
+        expect(result.current.herbalSupplements).toBe(1)
+        expect(result.current.proteinSupplements).toBe(1)
+        expect(result.current.lowStockSupplements).toBe(0) // All above threshold of 10
+      })
+    })
+
+    describe('useMedicalDeviceStats', () => {
+      it('should calculate medical device statistics', async () => {
+        const devicesWithVariety = [
+          mockMedicalDevice,
+          { ...mockMedicalDevice, id: 8, device_type: 'therapeutic' as const },
+          { ...mockMedicalDevice, id: 9, device_type: 'surgical' as const },
+          { ...mockMedicalDevice, id: 10, device_type: 'monitoring' as const },
+        ]
+
+        server.use(
+          http.get(`${API_BASE}/medical-devices/`, () => {
+            return HttpResponse.json(devicesWithVariety)
+          })
+        )
+
+        const { result } = renderHook(() => useMedicalDeviceStats(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isLoading).toBe(false)
+        })
+
+        expect(result.current.totalDevices).toBe(4)
+        expect(result.current.diagnosticDevices).toBe(1)
+        expect(result.current.therapeuticDevices).toBe(1)
+        expect(result.current.surgicalDevices).toBe(1)
+        expect(result.current.monitoringDevices).toBe(1)
+        expect(result.current.lowStockDevices).toBe(0) // All above threshold of 5
+      })
+    })
+
+    describe('useProductStats', () => {
+      it('should calculate unified product statistics', async () => {
+        server.use(
+          http.get(`${API_BASE}/products/`, () => {
+            return HttpResponse.json(mockProducts)
+          })
+        )
+
+        const { result } = renderHook(() => useProductStats(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isLoading).toBe(false)
+        })
+
+        expect(result.current.totalProducts).toBe(4)
+        expect(result.current.medicines).toBe(2)
+        expect(result.current.supplements).toBe(1)
+        expect(result.current.medicalDevices).toBe(1)
+        expect(result.current.prescriptionProducts).toBe(1) // Only prescription medicine
+        expect(result.current.lowStockProducts).toBe(0) // All above threshold of 10
+        expect(result.current.totalValue).toBeGreaterThan(0)
+        expect(result.current.totalCatalogValue).toBeGreaterThan(0)
+      })
+
+      it('should use catalog value when no stock data', async () => {
+        const productsWithoutStock = mockProducts.map(p => ({ ...p, stock: 0 }))
+        
+        server.use(
+          http.get(`${API_BASE}/products/`, () => {
+            return HttpResponse.json(productsWithoutStock)
+          })
+        )
+
+        const { result } = renderHook(() => useProductStats(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isLoading).toBe(false)
+        })
+
+        expect(result.current.totalValue).toBe(result.current.totalCatalogValue)
+        expect(result.current.totalCatalogValue).toBeGreaterThan(0)
+      })
+    })
+  })
+
+  describe('Error Handling', () => {
+    it('should retry failed requests', async () => {
+      let callCount = 0
+      server.use(
+        http.get(`${API_BASE}/medicines/`, () => {
+          callCount++
+          if (callCount < 3) {
+            return new HttpResponse(null, { status: 500 })
+          }
+          return HttpResponse.json(mockMedicines)
+        })
+      )
+
+      const { result } = renderHook(() => useMedicines(), {
+        wrapper: createWrapper(queryClient)
+        }
+      })
+
+      await waitFor(() => {
+        expect(result.current.isSuccess).toBe(true)
+      }, { timeout: 10000 })
+
+      expect(callCount).toBe(3)
+      expect(result.current.data).toEqual(mockMedicines)
+    })
+
+    it('should handle network errors', async () => {
+      server.use(
+        http.get(`${API_BASE}/medicines/`, () => {
+          return HttpResponse.error()
+        })
+      )
+
+      const { result } = renderHook(() => useMedicines(), {
+        wrapper: createWrapper(queryClient)
+        }
+      })
+
+      await waitFor(() => {
+        expect(result.current.isError).toBe(true)
+      })
+
+      expect(result.current.error).toBeTruthy()
+    })
+
+    it('should handle 404 errors', async () => {
+      const medicineId = 999
+      server.use(
+        http.get(`${API_BASE}/medicines/${medicineId}/`, () => {
+          return new HttpResponse(null, { status: 404 })
+        })
+      )
+
+      const { result } = renderHook(() => useMedicine(medicineId), {
+        wrapper: createWrapper(queryClient)
+        }
+      })
+
+      await waitFor(() => {
+        expect(result.current.isError).toBe(true)
+      })
+
+      expect(result.current.error).toBeTruthy()
+    })
+  })
+
+  describe('Cache Behavior', () => {
+    it('should cache data with correct stale times', async () => {
+      server.use(
+        http.get(`${API_BASE}/medicines/`, () => {
+          return HttpResponse.json(mockMedicines)
+        })
+      )
+
+      const { result } = renderHook(() => useMedicines(), {
+        wrapper: createWrapper(queryClient)
+        }
+      })
+
+      await waitFor(() => {
+        expect(result.current.isSuccess).toBe(true)
+      })
+
+      // Data should be cached
+      const cacheData = queryClient.getQueryData(queryKeys.medicines.list())
+      expect(cacheData).toEqual(mockMedicines)
+    })
+
+    it('should use shorter stale time for search queries', async () => {
+      const query = 'test'
+      
+      server.use(
+        http.get(`${API_BASE}/products/search/`, () => {
+          return HttpResponse.json([mockMedicine])
+        })
+      )
+
+      const { result } = renderHook(() => useSearchProducts(query), {
+        wrapper: createWrapper(queryClient)
+        }
+      })
+
+      await waitFor(() => {
+        expect(result.current.isSuccess).toBe(true)
+      })
+
+      // Should use 2 minutes stale time for search results
+      const query_cache = queryClient.getQueryCache().find({ queryKey: queryKeys.products.search(query) })
+      expect(query_cache?.options.staleTime).toBe(2 * 60 * 1000)
+    })
+
+    it('should use shorter stale time for low stock queries', async () => {
+      server.use(
+        http.get(`${API_BASE}/products/low_stock/`, () => {
+          return HttpResponse.json([])
+        })
+      )
+
+      const { result } = renderHook(() => useLowStockProducts(), {
+        wrapper: createWrapper(queryClient)
+        }
+      })
+
+      await waitFor(() => {
+        expect(result.current.isSuccess).toBe(true)
+      })
+
+      // Should use 1 minute stale time for low stock (more dynamic)
+      const query_cache = queryClient.getQueryCache().find({ queryKey: queryKeys.products.lowStock() })
+      expect(query_cache?.options.staleTime).toBe(1 * 60 * 1000)
+    })
+  })
+})

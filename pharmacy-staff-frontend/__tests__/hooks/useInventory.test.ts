@@ -1,0 +1,970 @@
+import { renderHook, waitFor } from '@testing-library/react'
+import { QueryClient } from '@tanstack/react-query'
+import { server } from '../mocks/server'
+import { http, HttpResponse } from 'msw'
+import { createTestQueryClient } from '../utils/test-utils'
+import { queryKeys } from '@/lib/queryKeys'
+import type { InventoryRecord, InventoryTransaction } from '@/lib/types'
+import {
+  useInventoryRecords,
+  useInventoryRecord,
+  useLowStockRecords,
+  useInventoryRecordsByBranch,
+  useInventoryRecordsByProduct,
+  useBelowMinimumStock,
+  useExpiringRecords,
+  useInventoryTransactions,
+  useInventoryTransaction,
+  useInventoryTransactionsByType,
+  useInventoryTransactionsByBranch,
+  useProductTransactionHistory,
+  useRestockTransactions,
+  useSaleTransactions,
+  useAdjustmentTransactions,
+  useSearchInventoryRecords,
+  useSearchInventoryTransactions,
+  useInventoryStats,
+  useBranchInventoryStats,
+  useLowStockStats,
+  useInventoryValueStats,
+} from '@/hooks/api/useInventory'
+import { createWrapper } from '../utils'
+
+// Mock data
+const mockInventoryRecord: InventoryRecord = {
+  id: 1,
+  medicine: 1,
+  medicine_name: 'Paracetamol',
+  supplement: null,
+  supplement_name: null,
+  medical_device: null,
+  medical_device_name: null,
+  branch: 1,
+  branch_name: 'Main Branch',
+  current_stock: 100,
+  minimum_stock: 20,
+  maximum_stock: 200,
+  stock_level: 100,
+  is_low_stock: false,
+  reorder_level: 30,
+  supplier: 'PharmaCorp',
+  batch_number: 'BATCH001',
+  expiry_date: '2025-12-31',
+  cost_per_unit: '5.00',
+  selling_price: '10.00',
+  last_updated: '2024-01-01T00:00:00Z',
+  created_at: '2024-01-01T00:00:00Z',
+}
+
+const mockLowStockRecord: InventoryRecord = {
+  ...mockInventoryRecord,
+  id: 2,
+  medicine: 2,
+  medicine_name: 'Aspirin',
+  current_stock: 15,
+  stock_level: 15,
+  is_low_stock: true,
+}
+
+const mockInventoryTransaction: InventoryTransaction = {
+  id: 1,
+  medicine: 1,
+  medicine_name: 'Paracetamol',
+  supplement: null,
+  supplement_name: null,
+  medical_device: null,
+  medical_device_name: null,
+  branch: 1,
+  branch_name: 'Main Branch',
+  transaction_type: 'restock',
+  quantity: 50,
+  unit_cost: '5.00',
+  total_cost: '250.00',
+  reference_number: 'REF001',
+  notes: 'Monthly restock',
+  processed_by: 1,
+  processed_by_name: 'John Admin',
+  supplier: 'PharmaCorp',
+  batch_number: 'BATCH001',
+  expiry_date: '2025-12-31',
+  created_at: '2024-01-01T00:00:00Z',
+}
+
+const mockInventoryRecords: InventoryRecord[] = [
+  mockInventoryRecord,
+  mockLowStockRecord,
+  {
+    ...mockInventoryRecord,
+    id: 3,
+    medicine: null,
+    medicine_name: null,
+    supplement: 1,
+    supplement_name: 'Vitamin D3',
+    current_stock: 50,
+    stock_level: 50,
+  },
+]
+
+const mockInventoryTransactions: InventoryTransaction[] = [
+  mockInventoryTransaction,
+  {
+    ...mockInventoryTransaction,
+    id: 2,
+    transaction_type: 'sale',
+    quantity: -10,
+    total_cost: '-100.00',
+    reference_number: 'SALE001',
+  },
+  {
+    ...mockInventoryTransaction,
+    id: 3,
+    transaction_type: 'adjustment',
+    quantity: 5,
+    total_cost: '25.00',
+    reference_number: 'ADJ001',
+  },
+]
+
+const API_BASE = 'https://longchau-pms.onrender.com/api'
+
+describe('useInventory Hooks', () => {
+  let queryClient: QueryClient
+
+  beforeEach(() => {
+    queryClient = createTestQueryClient()
+  })
+
+  afterEach(() => {
+    queryClient.clear()
+  })
+
+  describe('Inventory Records Query Hooks', () => {
+    describe('useInventoryRecords', () => {
+      it('should fetch inventory records successfully', async () => {
+        server.use(
+          http.get(`${API_BASE}/inventory/`, () => {
+            return HttpResponse.json(mockInventoryRecords)
+          })
+        )
+
+        const { result } = renderHook(() => useInventoryRecords(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(mockInventoryRecords)
+        expect(result.current.isLoading).toBe(false)
+        expect(result.current.error).toBe(null)
+      })
+
+      it('should fetch inventory records with filters', async () => {
+        const filters = { branch: 1, is_low_stock: true }
+        
+        server.use(
+          http.get(`${API_BASE}/inventory/`, ({ request }) => {
+            const url = new URL(request.url)
+            expect(url.searchParams.get('branch')).toBe('1')
+            expect(url.searchParams.get('is_low_stock')).toBe('true')
+            return HttpResponse.json([mockLowStockRecord])
+          })
+        )
+
+        const { result } = renderHook(() => useInventoryRecords(filters), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockLowStockRecord])
+      })
+
+      it('should use correct query key', () => {
+        const filters = { branch: 1 }
+        const { result } = renderHook(() => useInventoryRecords(filters), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        const expectedKey = queryKeys.inventory.records.list(filters)
+        expect(queryClient.getQueryCache().findAll({ queryKey: expectedKey })).toHaveLength(1)
+      })
+
+      it('should keep previous data during refetch', async () => {
+        server.use(
+          http.get(`${API_BASE}/inventory/`, () => {
+            return HttpResponse.json(mockInventoryRecords)
+          })
+        )
+
+        const { result, rerender } = renderHook(() => useInventoryRecords(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        const firstData = result.current.data
+
+        // Simulate a refetch with new data
+        server.use(
+          http.get(`${API_BASE}/inventory/`, () => {
+            return HttpResponse.json([...mockInventoryRecords, { ...mockInventoryRecord, id: 4 }])
+          })
+        )
+
+        queryClient.invalidateQueries({ queryKey: queryKeys.inventory.records.lists() })
+        rerender()
+
+        // During loading, should still have previous data
+        expect(result.current.data).toEqual(firstData)
+
+        await waitFor(() => {
+          expect(result.current.data?.length).toBe(4)
+        })
+      })
+    })
+
+    describe('useInventoryRecord', () => {
+      it('should fetch single inventory record successfully', async () => {
+        const recordId = 1
+        server.use(
+          http.get(`${API_BASE}/inventory/${recordId}/`, () => {
+            return HttpResponse.json(mockInventoryRecord)
+          })
+        )
+
+        const { result } = renderHook(() => useInventoryRecord(recordId), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(mockInventoryRecord)
+      })
+
+      it('should not run query when id is invalid', () => {
+        const { result } = renderHook(() => useInventoryRecord(0), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        expect(result.current.data).toBeUndefined()
+        expect(result.current.isPending).toBe(false)
+        expect(result.current.fetchStatus).toBe('idle')
+      })
+    })
+
+    describe('useLowStockRecords', () => {
+      it('should fetch low stock records', async () => {
+        server.use(
+          http.get(`${API_BASE}/inventory/low_stock/`, () => {
+            return HttpResponse.json([mockLowStockRecord])
+          })
+        )
+
+        const { result } = renderHook(() => useLowStockRecords(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockLowStockRecord])
+      })
+    })
+
+    describe('useInventoryRecordsByBranch', () => {
+      it('should fetch records by branch', async () => {
+        const branchId = 1
+        server.use(
+          http.get(`${API_BASE}/inventory/branch/${branchId}/`, () => {
+            return HttpResponse.json([mockInventoryRecord])
+          })
+        )
+
+        const { result } = renderHook(() => useInventoryRecordsByBranch(branchId), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockInventoryRecord])
+      })
+
+      it('should not run query when branchId is invalid', () => {
+        const { result } = renderHook(() => useInventoryRecordsByBranch(0), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        expect(result.current.data).toBeUndefined()
+        expect(result.current.isPending).toBe(false)
+        expect(result.current.fetchStatus).toBe('idle')
+      })
+    })
+
+    describe('useInventoryRecordsByProduct', () => {
+      it('should fetch records by medicine', async () => {
+        const productId = 1
+        const productType = 'medicine'
+        
+        server.use(
+          http.get(`${API_BASE}/inventory/medicine/${productId}/`, () => {
+            return HttpResponse.json([mockInventoryRecord])
+          })
+        )
+
+        const { result } = renderHook(() => useInventoryRecordsByProduct(productId, productType), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockInventoryRecord])
+      })
+
+      it('should fetch records by supplement', async () => {
+        const productId = 1
+        const productType = 'supplement'
+        
+        server.use(
+          http.get(`${API_BASE}/inventory/supplement/${productId}/`, () => {
+            return HttpResponse.json([mockInventoryRecords[2]])
+          })
+        )
+
+        const { result } = renderHook(() => useInventoryRecordsByProduct(productId, productType), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockInventoryRecords[2]])
+      })
+
+      it('should fetch records by medical device', async () => {
+        const productId = 1
+        const productType = 'medical_device'
+        
+        server.use(
+          http.get(`${API_BASE}/inventory/medical-device/${productId}/`, () => {
+            return HttpResponse.json([])
+          })
+        )
+
+        const { result } = renderHook(() => useInventoryRecordsByProduct(productId, productType), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([])
+      })
+
+      it('should handle unknown product type', async () => {
+        const productId = 1
+        const productType = 'unknown' as any
+        
+        const { result } = renderHook(() => useInventoryRecordsByProduct(productId, productType), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isError).toBe(true)
+        })
+
+        expect(result.current.error?.message).toContain('Unknown product type')
+      })
+    })
+
+    describe('useBelowMinimumStock', () => {
+      it('should fetch records below minimum stock', async () => {
+        server.use(
+          http.get(`${API_BASE}/inventory/below_minimum/`, () => {
+            return HttpResponse.json([mockLowStockRecord])
+          })
+        )
+
+        const { result } = renderHook(() => useBelowMinimumStock(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockLowStockRecord])
+      })
+    })
+
+    describe('useExpiringRecords', () => {
+      it('should fetch expiring records', async () => {
+        const beforeDate = '2024-06-01'
+        
+        server.use(
+          http.get(`${API_BASE}/inventory/expiring/`, ({ request }) => {
+            const url = new URL(request.url)
+            expect(url.searchParams.get('before_date')).toBe(beforeDate)
+            return HttpResponse.json([mockInventoryRecord])
+          })
+        )
+
+        const { result } = renderHook(() => useExpiringRecords(beforeDate), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockInventoryRecord])
+      })
+
+      it('should not run query when beforeDate is not provided', () => {
+        const { result } = renderHook(() => useExpiringRecords(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        expect(result.current.data).toBeUndefined()
+        expect(result.current.isPending).toBe(false)
+        expect(result.current.fetchStatus).toBe('idle')
+      })
+    })
+  })
+
+  describe('Inventory Transactions Query Hooks', () => {
+    describe('useInventoryTransactions', () => {
+      it('should fetch inventory transactions successfully', async () => {
+        server.use(
+          http.get(`${API_BASE}/inventory/transactions/`, () => {
+            return HttpResponse.json(mockInventoryTransactions)
+          })
+        )
+
+        const { result } = renderHook(() => useInventoryTransactions(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(mockInventoryTransactions)
+      })
+
+      it('should fetch transactions with filters', async () => {
+        const filters = { branch: 1, transaction_type: 'restock' }
+        
+        server.use(
+          http.get(`${API_BASE}/inventory/transactions/`, ({ request }) => {
+            const url = new URL(request.url)
+            expect(url.searchParams.get('branch')).toBe('1')
+            expect(url.searchParams.get('transaction_type')).toBe('restock')
+            return HttpResponse.json([mockInventoryTransaction])
+          })
+        )
+
+        const { result } = renderHook(() => useInventoryTransactions(filters), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockInventoryTransaction])
+      })
+    })
+
+    describe('useInventoryTransaction', () => {
+      it('should fetch single inventory transaction successfully', async () => {
+        const transactionId = 1
+        server.use(
+          http.get(`${API_BASE}/inventory/transactions/${transactionId}/`, () => {
+            return HttpResponse.json(mockInventoryTransaction)
+          })
+        )
+
+        const { result } = renderHook(() => useInventoryTransaction(transactionId), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual(mockInventoryTransaction)
+      })
+    })
+
+    describe('useInventoryTransactionsByType', () => {
+      it('should fetch transactions by type', async () => {
+        const transactionType = 'restock'
+        
+        server.use(
+          http.get(`${API_BASE}/inventory/transactions/type/${transactionType}/`, () => {
+            return HttpResponse.json([mockInventoryTransaction])
+          })
+        )
+
+        const { result } = renderHook(() => useInventoryTransactionsByType(transactionType), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockInventoryTransaction])
+      })
+    })
+
+    describe('useInventoryTransactionsByBranch', () => {
+      it('should fetch transactions by branch', async () => {
+        const branchId = 1
+        
+        server.use(
+          http.get(`${API_BASE}/inventory/transactions/`, ({ request }) => {
+            const url = new URL(request.url)
+            expect(url.searchParams.get('branch')).toBe('1')
+            return HttpResponse.json([mockInventoryTransaction])
+          })
+        )
+
+        const { result } = renderHook(() => useInventoryTransactionsByBranch(branchId), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockInventoryTransaction])
+      })
+    })
+
+    describe('useProductTransactionHistory', () => {
+      it('should fetch product transaction history', async () => {
+        const productId = 1
+        const productType = 'medicine'
+        
+        server.use(
+          http.get(`${API_BASE}/inventory/transactions/product/${productType}/${productId}/`, () => {
+            return HttpResponse.json([mockInventoryTransaction])
+          })
+        )
+
+        const { result } = renderHook(() => useProductTransactionHistory(productId, productType), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockInventoryTransaction])
+      })
+    })
+
+    describe('Specialized Transaction Hooks', () => {
+      describe('useRestockTransactions', () => {
+        it('should fetch restock transactions', async () => {
+          server.use(
+            http.get(`${API_BASE}/inventory/transactions/restock/`, () => {
+              return HttpResponse.json([mockInventoryTransaction])
+            })
+          )
+
+          const { result } = renderHook(() => useRestockTransactions(), {
+            wrapper: createWrapper(queryClient)
+            }
+          })
+
+          await waitFor(() => {
+            expect(result.current.isSuccess).toBe(true)
+          })
+
+          expect(result.current.data).toEqual([mockInventoryTransaction])
+        })
+      })
+
+      describe('useSaleTransactions', () => {
+        it('should fetch sale transactions', async () => {
+          server.use(
+            http.get(`${API_BASE}/inventory/transactions/sale/`, () => {
+              return HttpResponse.json([mockInventoryTransactions[1]])
+            })
+          )
+
+          const { result } = renderHook(() => useSaleTransactions(), {
+            wrapper: createWrapper(queryClient)
+            }
+          })
+
+          await waitFor(() => {
+            expect(result.current.isSuccess).toBe(true)
+          })
+
+          expect(result.current.data).toEqual([mockInventoryTransactions[1]])
+        })
+      })
+
+      describe('useAdjustmentTransactions', () => {
+        it('should fetch adjustment transactions', async () => {
+          server.use(
+            http.get(`${API_BASE}/inventory/transactions/adjustment/`, () => {
+              return HttpResponse.json([mockInventoryTransactions[2]])
+            })
+          )
+
+          const { result } = renderHook(() => useAdjustmentTransactions(), {
+            wrapper: createWrapper(queryClient)
+            }
+          })
+
+          await waitFor(() => {
+            expect(result.current.isSuccess).toBe(true)
+          })
+
+          expect(result.current.data).toEqual([mockInventoryTransactions[2]])
+        })
+      })
+    })
+  })
+
+  describe('Search Hooks', () => {
+    describe('useSearchInventoryRecords', () => {
+      it('should search inventory records', async () => {
+        const query = 'paracetamol'
+        
+        server.use(
+          http.get(`${API_BASE}/inventory/search/`, ({ request }) => {
+            const url = new URL(request.url)
+            expect(url.searchParams.get('q')).toBe(query)
+            return HttpResponse.json([mockInventoryRecord])
+          })
+        )
+
+        const { result } = renderHook(() => useSearchInventoryRecords(query), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockInventoryRecord])
+      })
+
+      it('should not run query when query is empty', () => {
+        const { result } = renderHook(() => useSearchInventoryRecords(''), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        expect(result.current.data).toBeUndefined()
+        expect(result.current.isPending).toBe(false)
+        expect(result.current.fetchStatus).toBe('idle')
+      })
+    })
+
+    describe('useSearchInventoryTransactions', () => {
+      it('should search inventory transactions', async () => {
+        const query = 'restock'
+        
+        server.use(
+          http.get(`${API_BASE}/inventory/transactions/search/`, ({ request }) => {
+            const url = new URL(request.url)
+            expect(url.searchParams.get('q')).toBe(query)
+            return HttpResponse.json([mockInventoryTransaction])
+          })
+        )
+
+        const { result } = renderHook(() => useSearchInventoryTransactions(query), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isSuccess).toBe(true)
+        })
+
+        expect(result.current.data).toEqual([mockInventoryTransaction])
+      })
+    })
+  })
+
+  describe('Statistics Hooks', () => {
+    describe('useInventoryStats', () => {
+      it('should calculate inventory statistics', async () => {
+        server.use(
+          http.get(`${API_BASE}/inventory/`, () => {
+            return HttpResponse.json(mockInventoryRecords)
+          }),
+          http.get(`${API_BASE}/inventory/low_stock/`, () => {
+            return HttpResponse.json([mockLowStockRecord])
+          }),
+          http.get(`${API_BASE}/inventory/below_minimum/`, () => {
+            return HttpResponse.json([mockLowStockRecord])
+          })
+        )
+
+        const { result } = renderHook(() => useInventoryStats(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isLoading).toBe(false)
+        })
+
+        expect(result.current.totalRecords).toBe(3)
+        expect(result.current.totalProducts).toBe(2) // medicine + supplement
+        expect(result.current.lowStockItems).toBe(1)
+        expect(result.current.belowMinimumItems).toBe(1)
+        expect(result.current.totalStockValue).toBeGreaterThan(0)
+        expect(result.current.averageStockLevel).toBeGreaterThan(0)
+        expect(result.current.stockStatusDistribution.in_stock).toBe(2)
+        expect(result.current.stockStatusDistribution.low_stock).toBe(1)
+      })
+
+      it('should return default values when no data', () => {
+        const { result } = renderHook(() => useInventoryStats(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        expect(result.current.totalRecords).toBe(0)
+        expect(result.current.totalProducts).toBe(0)
+        expect(result.current.lowStockItems).toBe(0)
+        expect(result.current.belowMinimumItems).toBe(0)
+        expect(result.current.totalStockValue).toBe(0)
+        expect(result.current.averageStockLevel).toBe(0)
+        expect(result.current.stockStatusDistribution).toEqual({
+          in_stock: 0,
+          low_stock: 0,
+          out_of_stock: 0,
+        })
+      })
+    })
+
+    describe('useBranchInventoryStats', () => {
+      it('should calculate branch inventory statistics', async () => {
+        const branchId = 1
+        
+        server.use(
+          http.get(`${API_BASE}/inventory/branch/${branchId}/`, () => {
+            return HttpResponse.json([mockInventoryRecord, mockLowStockRecord])
+          }),
+          http.get(`${API_BASE}/inventory/transactions/`, ({ request }) => {
+            const url = new URL(request.url)
+            if (url.searchParams.get('branch') === '1') {
+              return HttpResponse.json([mockInventoryTransaction])
+            }
+            return HttpResponse.json([])
+          })
+        )
+
+        const { result } = renderHook(() => useBranchInventoryStats(branchId), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isLoading).toBe(false)
+        })
+
+        expect(result.current.totalRecords).toBe(2)
+        expect(result.current.totalProducts).toBe(2)
+        expect(result.current.lowStockItems).toBe(1)
+        expect(result.current.totalTransactions).toBe(1)
+        expect(result.current.recentActivity).toBe(1) // Transaction from today
+        expect(result.current.averageStockLevel).toBeGreaterThan(0)
+      })
+
+      it('should return default values when no data', () => {
+        const branchId = 1
+        
+        const { result } = renderHook(() => useBranchInventoryStats(branchId), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        expect(result.current.totalRecords).toBe(0)
+        expect(result.current.totalProducts).toBe(0)
+        expect(result.current.lowStockItems).toBe(0)
+        expect(result.current.totalTransactions).toBe(0)
+        expect(result.current.recentActivity).toBe(0)
+        expect(result.current.totalStockValue).toBe(0)
+        expect(result.current.averageStockLevel).toBe(0)
+      })
+    })
+
+    describe('useLowStockStats', () => {
+      it('should calculate low stock statistics', async () => {
+        server.use(
+          http.get(`${API_BASE}/inventory/low_stock/`, () => {
+            return HttpResponse.json([mockLowStockRecord])
+          }),
+          http.get(`${API_BASE}/inventory/below_minimum/`, () => {
+            return HttpResponse.json([mockLowStockRecord])
+          })
+        )
+
+        const { result } = renderHook(() => useLowStockStats(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isLoading).toBe(false)
+        })
+
+        expect(result.current.lowStockCount).toBe(1)
+        expect(result.current.belowMinimumCount).toBe(1)
+        expect(result.current.criticalItems).toBe(0) // none with 0 stock
+        expect(result.current.branchDistribution['Branch 1']).toBe(1)
+      })
+    })
+
+    describe('useInventoryValueStats', () => {
+      it('should calculate inventory value statistics', async () => {
+        server.use(
+          http.get(`${API_BASE}/inventory/`, () => {
+            return HttpResponse.json(mockInventoryRecords)
+          })
+        )
+
+        const { result } = renderHook(() => useInventoryValueStats(), {
+          wrapper: createWrapper(queryClient)
+        })
+
+        await waitFor(() => {
+          expect(result.current.isLoading).toBe(false)
+        })
+
+        expect(result.current.totalValue).toBeGreaterThan(0)
+        expect(result.current.valueByBranch['Branch 1']).toBeGreaterThan(0)
+        expect(result.current.valueByStatus.in_stock).toBeGreaterThan(0)
+        expect(result.current.valueByStatus.low_stock).toBeGreaterThan(0)
+      })
+    })
+  })
+
+  describe('Error Handling', () => {
+    it('should retry failed requests', async () => {
+      let callCount = 0
+      server.use(
+        http.get(`${API_BASE}/inventory/`, () => {
+          callCount++
+          if (callCount < 3) {
+            return new HttpResponse(null, { status: 500 })
+          }
+          return HttpResponse.json(mockInventoryRecords)
+        })
+      )
+
+      const { result } = renderHook(() => useInventoryRecords(), {
+        wrapper: createWrapper(queryClient)
+        }
+      })
+
+      await waitFor(() => {
+        expect(result.current.isSuccess).toBe(true)
+      }, { timeout: 10000 })
+
+      expect(callCount).toBe(3)
+      expect(result.current.data).toEqual(mockInventoryRecords)
+    })
+
+    it('should handle network errors', async () => {
+      server.use(
+        http.get(`${API_BASE}/inventory/`, () => {
+          return HttpResponse.error()
+        })
+      )
+
+      const { result } = renderHook(() => useInventoryRecords(), {
+        wrapper: createWrapper(queryClient)
+        }
+      })
+
+      await waitFor(() => {
+        expect(result.current.isError).toBe(true)
+      })
+
+      expect(result.current.error).toBeTruthy()
+    })
+
+    it('should handle 404 errors', async () => {
+      const recordId = 999
+      server.use(
+        http.get(`${API_BASE}/inventory/${recordId}/`, () => {
+          return new HttpResponse(null, { status: 404 })
+        })
+      )
+
+      const { result } = renderHook(() => useInventoryRecord(recordId), {
+        wrapper: createWrapper(queryClient)
+        }
+      })
+
+      await waitFor(() => {
+        expect(result.current.isError).toBe(true)
+      })
+
+      expect(result.current.error).toBeTruthy()
+    })
+  })
+
+  describe('Cache Behavior', () => {
+    it('should cache data with correct stale times', async () => {
+      server.use(
+        http.get(`${API_BASE}/inventory/`, () => {
+          return HttpResponse.json(mockInventoryRecords)
+        })
+      )
+
+      const { result } = renderHook(() => useInventoryRecords(), {
+        wrapper: createWrapper(queryClient)
+        }
+      })
+
+      await waitFor(() => {
+        expect(result.current.isSuccess).toBe(true)
+      })
+
+      // Data should be cached
+      const cacheData = queryClient.getQueryData(queryKeys.inventory.records.list())
+      expect(cacheData).toEqual(mockInventoryRecords)
+    })
+
+    it('should use shorter stale time for low stock queries', async () => {
+      server.use(
+        http.get(`${API_BASE}/inventory/low_stock/`, () => {
+          return HttpResponse.json([mockLowStockRecord])
+        })
+      )
+
+      const { result } = renderHook(() => useLowStockRecords(), {
+        wrapper: createWrapper(queryClient)
+        }
+      })
+
+      await waitFor(() => {
+        expect(result.current.isSuccess).toBe(true)
+      })
+
+      // Should use 1 minute stale time for critical data
+      const query = queryClient.getQueryCache().find({ queryKey: queryKeys.inventory.records.lowStock() })
+      expect(query?.options.staleTime).toBe(1 * 60 * 1000)
+    })
+  })
+})

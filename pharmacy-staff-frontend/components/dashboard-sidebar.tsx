@@ -31,6 +31,11 @@ import {
   Pill,
   UserCog,
   Store,
+  FileText,
+  Truck,
+  Award,
+  Crown,
+  Factory
 } from "lucide-react"
 
 const sidebarItems = [
@@ -53,23 +58,17 @@ const sidebarItems = [
   {
     title: "Warehouse",
     href: "/warehouse",
-    icon: Warehouse,
-    badge: "2", // Pending requests
+    icon: Factory,
   },
   {
-    title: "Stores",
-    href: "/stores",
+    title: "Branches",
+    href: "/branches",
     icon: Store,
   },
   {
     title: "Customers",
     href: "/customers",
-    icon: Users,
-  },
-  {
-    title: "Orders",
-    href: "/orders",
-    icon: ShoppingCart,
+    icon: Crown,
   },
   {
     title: "Staff",
@@ -77,8 +76,28 @@ const sidebarItems = [
     icon: UserCog,
   },
   {
-    title: "Analytics",
-    href: "/analytics",
+    title: "Orders",
+    href: "/orders",
+    icon: ShoppingCart,
+  },
+  {
+    title: "Prescriptions",
+    href: "/prescriptions",
+    icon: FileText,
+  },
+  {
+    title: "Deliveries",
+    href: "/deliveries",
+    icon: Truck,
+  },
+  {
+    title: "Loyalty Points",
+    href: "/loyalty",
+    icon: Award,
+  },
+  {
+    title: "Reports",
+    href: "/reports",
     icon: BarChart3,
   },
   {
