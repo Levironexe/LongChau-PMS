@@ -35,7 +35,8 @@ import {
   Truck,
   Award,
   Crown,
-  Factory
+  Factory,
+  Shield
 } from "lucide-react"
 
 const sidebarItems = [
@@ -105,6 +106,12 @@ const sidebarItems = [
     href: "/settings",
     icon: Settings,
   },
+  {
+    title: "Admin Login",
+    href: "/admin/login",
+    icon: Shield,
+    badge: "ADMIN",
+  },
 ]
 
 interface SidebarProps {
@@ -145,7 +152,13 @@ export function DashboardSidebar({ className }: SidebarProps) {
                 <item.icon className="h-5 w-5" />
                 <span>{item.title}</span>
                 {item.badge && (
-                  <Badge variant="destructive" className="ml-auto h-5 px-1.5 text-xs">
+                  <Badge 
+                    variant={item.badge === "ADMIN" ? "secondary" : "destructive"} 
+                    className={cn(
+                      "ml-auto h-5 px-1.5 text-xs",
+                      item.badge === "ADMIN" && "bg-red-100 text-red-800 hover:bg-red-200"
+                    )}
+                  >
                     {item.badge}
                   </Badge>
                 )}

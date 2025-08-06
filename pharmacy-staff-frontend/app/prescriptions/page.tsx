@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { 
   FileText,
   Plus, 
@@ -46,6 +47,12 @@ import {
   XCircle
 } from "lucide-react"
 import { api } from "@/lib/api"
+import { 
+  invalidDoctorPrescriptions, 
+  validDoctors,
+  isDoctorValid,
+  mockInvalidDoctorError 
+} from "@/lib/mock-data"
 import {
   usePrescriptions,
   usePrescription,
@@ -89,6 +96,8 @@ export default function PrescriptionsPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [prescriptionItems, setPrescriptionItems] = useState<any[]>([])
+  const [doctorValidationError, setDoctorValidationError] = useState<string | null>(null)
+  const [showInvalidDoctorDemo, setShowInvalidDoctorDemo] = useState(false)
   const [formData, setFormData] = useState({
     prescription_number: "",
     patient_name: "",
@@ -112,11 +121,11 @@ export default function PrescriptionsPage() {
   const { data: prescriptions = [], isLoading, error } = usePrescriptions(filters)
   const prescriptionStats = usePrescriptionStats()
 
-  // Mock doctors data
+  // Mock doctors data - includes valid and invalid doctors for validation demo
   const { data: doctors = [] } = useQuery({
     queryKey: ["doctors"],
     queryFn: async () => {
-      return [
+      const validDoctorsList: Doctor[] = [
         {
           id: 1,
           name: "Dr. Tran Thi Minh",
@@ -126,7 +135,7 @@ export default function PrescriptionsPage() {
         },
         {
           id: 2,
-          name: "Dr. Pham Van Duc",
+          name: "Dr. Pham Van Duc", 
           license: "MD-67890",
           specialty: "Cardiology",
           hospital: "University Medical Center"
@@ -138,7 +147,30 @@ export default function PrescriptionsPage() {
           specialty: "Endocrinology",
           hospital: "Bach Mai Hospital"
         }
-      ] as Doctor[]
+      ]
+      
+      // Add invalid doctors for validation demo
+      if (showInvalidDoctorDemo) {
+        const invalidDoctors: Doctor[] = [
+          {
+            id: 999,
+            name: "Dr. John Doe",
+            license: "MD-INVALID-001", 
+            specialty: "General Practice",
+            hospital: "Unknown Clinic"
+          },
+          {
+            id: 998,
+            name: "Dr. Jane Smith", 
+            license: "MD-EXPIRED-002",
+            specialty: "Pediatrics",
+            hospital: "Expired License Clinic"
+          }
+        ]
+        return [...validDoctorsList, ...invalidDoctors]
+      }
+      
+      return validDoctorsList
     },
   })
 
@@ -162,6 +194,17 @@ export default function PrescriptionsPage() {
   
   const handleCreatePrescription = async () => {
     try {
+      // BUSINESS RULE VALIDATION: Check if doctor is valid
+      if (!isDoctorValid(formData.doctor_name, formData.doctor_license)) {
+        setDoctorValidationError(
+          `Invalid doctor: "${formData.doctor_name}" with license "${formData.doctor_license}" is not registered in our system or has an invalid/expired license.`
+        )
+        return
+      }
+
+      // Clear validation errors
+      setDoctorValidationError(null)
+
       // Generate prescription number if not provided
       const prescriptionNumber = formData.prescription_number || `RX-${Date.now()}`
       
@@ -182,6 +225,13 @@ export default function PrescriptionsPage() {
       resetForm()
     } catch (error) {
       console.error('Error creating prescription:', error)
+      // Check for doctor validation errors in API response
+      if (error && typeof error === 'object' && 'message' in error) {
+        const errorMessage = (error as any).message
+        if (errorMessage.includes('doctor') || errorMessage.includes('license')) {
+          setDoctorValidationError(`Prescription creation failed: ${errorMessage}`)
+        }
+      }
     }
   }
 
@@ -218,6 +268,7 @@ export default function PrescriptionsPage() {
       validation_notes: ""
     })
     setPrescriptionItems([])
+    setDoctorValidationError(null)
   }
 
   const addPrescriptionItem = (product: Product) => {
@@ -303,10 +354,20 @@ export default function PrescriptionsPage() {
             Manage prescription medications and patient orders
           </p>
         </div>
-        <Button onClick={() => { resetForm(); setShowDialog(true) }}>
-          <Plus className="h-4 w-4 mr-2" />
-          New Prescription
-        </Button>
+        <div className="flex gap-2">
+          <Button 
+            variant={showInvalidDoctorDemo ? "destructive" : "outline"}
+            onClick={() => setShowInvalidDoctorDemo(!showInvalidDoctorDemo)}
+            size="sm"
+          >
+            <AlertTriangle className="h-4 w-4 mr-2" />
+            {showInvalidDoctorDemo ? 'Hide' : 'Show'} Invalid Doctors
+          </Button>
+          <Button onClick={() => { resetForm(); setShowDialog(true) }}>
+            <Plus className="h-4 w-4 mr-2" />
+            New Prescription
+          </Button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -488,6 +549,31 @@ export default function PrescriptionsPage() {
           <DialogHeader>
             <DialogTitle>Create New Prescription</DialogTitle>
           </DialogHeader>
+          
+          {/* Doctor Validation Error */}
+          {doctorValidationError && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription className="font-medium">
+                Invalid Doctor Detected
+              </AlertDescription>
+              <AlertDescription>
+                {doctorValidationError}
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {/* Invalid Doctor Demo Warning */}
+          {showInvalidDoctorDemo && (
+            <Alert>
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                <strong>Demo Mode:</strong> Invalid doctors are now visible in the doctor dropdown for validation testing.
+                Select "Dr. John Doe" or "Dr. Jane Smith" to trigger validation errors.
+              </AlertDescription>
+            </Alert>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="prescription_number">Prescription Number (Optional - will auto-generate if empty)</Label>

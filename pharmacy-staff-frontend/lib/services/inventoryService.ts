@@ -13,7 +13,19 @@ export const inventoryService = {
   getInventoryRecords: async (filters?: InventoryRecordFilters): Promise<InventoryRecord[]> => {
     const queryString = filters ? createQueryParams(filters) : ''
     const response = await api.get(`/inventory-records/${queryString ? `?${queryString}` : ''}`)
-    return response.data.results || response.data || []
+    const records = response.data.results || response.data || []
+    
+    // DEBUG: Log API response details
+    console.log('InventoryService.getInventoryRecords:', {
+      url: `/inventory-records/${queryString ? `?${queryString}` : ''}`,
+      filters,
+      responseStatus: response.status,
+      totalRecords: records.length,
+      rawResponse: response.data,
+      sampleRecords: records.slice(0, 3)
+    })
+    
+    return records
   },
 
   // GET /inventory-records/{id}/ - Get single inventory record
@@ -33,8 +45,21 @@ export const inventoryService = {
   getRecordsByBranch: async (branchId: number): Promise<InventoryRecord[]> => {
     const response = await api.get(`/inventory-records/`)
     const allRecords = response.data.results || response.data || []
-    // Filter by branch on frontend since API filter isn't working
-    return allRecords.filter((record: InventoryRecord) => record.branch === branchId)
+    const filteredRecords = allRecords.filter((record: InventoryRecord) => record.branch === branchId)
+    
+    // DEBUG: Log branch filtering details
+    console.log('InventoryService.getRecordsByBranch:', {
+      branchId,
+      url: `/inventory-records/`,
+      responseStatus: response.status,
+      totalRecordsFromAPI: allRecords.length,
+      recordsAfterFiltering: filteredRecords.length,
+      sampleAllRecords: allRecords.slice(0, 5),
+      sampleFilteredRecords: filteredRecords.slice(0, 5),
+      branchIdsInResponse: Array.from(new Set(allRecords.map((r: any) => r.branch))).sort()
+    })
+    
+    return filteredRecords
   },
 
   // GET /inventory-records/ with medicine filter - Get inventory records for specific medicine
