@@ -28,11 +28,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { 
   ShoppingCart, 
-  Plus, 
-  Minus,
   Search, 
   Edit,
   Trash2,
@@ -43,13 +40,13 @@ import {
   ClipboardList,
   CheckCircle,
   Clock,
-  XCircle
+  XCircle,
+  Plus
 } from "lucide-react"
 import { useOrders, useCreateOrder, useUpdateOrder, useTransitionOrder, useDeleteOrder, useOrderStats } from "@/hooks/api/useOrders"
-import { useCustomersOnly } from "@/hooks/api/useUsers"
-import { useProducts } from "@/hooks/api/useProducts"
-
-import { Order, User, Product } from "@/lib/types"
+import { useUsers } from "@/hooks/api/useUsers"
+import { OrderForm } from "@/components/forms/OrderForm"
+import { Order } from "@/lib/validations/order"
 
 export default function OrdersPage() {
   const [showDialog, setShowDialog] = useState(false)
@@ -59,13 +56,6 @@ export default function OrdersPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [typeFilter, setTypeFilter] = useState<string>("all")
-  const [cartItems, setCartItems] = useState<any[]>([])
-  const [formData, setFormData] = useState({
-    customer_id: "",
-    order_type: "in_store" as "prescription" | "in_store" | "online",
-    payment_method: "cash" as "cash" | "card" | "insurance",
-    notes: ""
-  })
 
   const queryClient = useQueryClient()
 
@@ -77,151 +67,61 @@ export default function OrdersPage() {
   })
   
   const orderStats = useOrderStats()
+  const { data: customers = [] } = useUsers({ role: 'customer' })
 
-  const { data: customers = [], isLoading: customersLoading } = useCustomersOnly()
-  const { data: products = [], isLoading: productsLoading } = useProducts()
-
-  // Utility functions
-  const resetForm = () => {
-    setFormData({
-      customer_id: "",
-      order_type: "in_store",
-      payment_method: "cash",
-      notes: ""
-    })
-    setCartItems([])
-  }
-
+  // Mutations
   const createOrderMutation = useCreateOrder()
-  
-  const createOrder = {
-    mutate: (data: any) => {
-      createOrderMutation.mutate({
-        customer: parseInt(data.customer_id),
-        order_type: data.order_type,
-        payment_method: data.payment_method,
-        items: cartItems.map(item => ({
-          product: item.product_id,
-          quantity: item.quantity
-        })),
-        notes: data.notes,
-        branch: 1 // Default branch - should be dynamic in production
-      })
-    },
-    isPending: createOrderMutation.isPending
-  }
-  
-  // Handle successful order creation
-  if (createOrderMutation.isSuccess && !createOrderMutation.isPending) {
-    setShowDialog(false)
-    resetForm()
-  }
-
   const updateOrderMutation = useUpdateOrder()
-  
-  const updateOrder = {
-    mutate: (data: any) => {
-      updateOrderMutation.mutate({
-        id: data.id,
-        customer: parseInt(data.customer_id),
-        payment_method: data.payment_method,
-        notes: data.notes
-      })
-    },
-    isPending: updateOrderMutation.isPending
-  }
-  
-  // Handle successful order update
-  if (updateOrderMutation.isSuccess && !updateOrderMutation.isPending) {
-    setEditingOrder(null)
-    resetForm()
-  }
-
   const transitionOrderMutation = useTransitionOrder()
-  
-  const updateOrderStatus = {
-    mutate: ({ id, status }: { id: number, status: Order["status"] }) => {
-      transitionOrderMutation.mutate({ id, status })
-    },
-    isPending: transitionOrderMutation.isPending
-  }
-
   const deleteOrderMutation = useDeleteOrder()
-  
-  const deleteOrder = {
-    mutate: (id: number) => {
-      deleteOrderMutation.mutate(id)
-    },
-    isPending: deleteOrderMutation.isPending
-  }
 
-  const addToCart = (product: Product) => {
-    const existing = cartItems.find((item) => item.product_id === product.id)
-    if (existing) {
-      setCartItems(
-        cartItems.map((item) => 
-          item.product_id === product.id 
-            ? { ...item, quantity: item.quantity + 1 } 
-            : item
-        )
-      )
-    } else {
-      setCartItems([
-        ...cartItems,
-        {
-          product_id: product.id,
-          product_name: product.name,
-          price: product.price,
-          quantity: 1,
-        },
-      ])
+  // Handle order form submission
+  const handleOrderSubmit = async (orderData: any) => {
+    try {
+      // Transform orderData to match CreateOrderRequest interface
+      const transformedData = {
+        customer: orderData.customer,
+        order_type: orderData.order_type,
+        branch: orderData.branch || 1,
+        created_by: orderData.created_by,
+        notes: orderData.notes || undefined,
+        items: orderData.items || [],
+        ...(orderData.prescription && { prescription: orderData.prescription }),
+        ...(orderData.validated_by && { validated_by: orderData.validated_by }),
+        ...(orderData.delivery_address && { delivery_address: orderData.delivery_address }),
+        ...(orderData.delivery_instructions && { delivery_instructions: orderData.delivery_instructions }),
+        ...(orderData.unregistered_customer_name && { 
+          unregistered_customer_name: orderData.unregistered_customer_name,
+          unregistered_customer_phone: orderData.unregistered_customer_phone,
+          unregistered_customer_email: orderData.unregistered_customer_email,
+          unregistered_customer_address: orderData.unregistered_customer_address
+        })
+      }
+      
+      if (editingOrder) {
+        await updateOrderMutation.mutateAsync({
+          id: editingOrder.id!,
+          ...transformedData,
+        })
+      } else {
+        await createOrderMutation.mutateAsync(transformedData)
+      }
+      setShowDialog(false)
+      setEditingOrder(null)
+      queryClient.invalidateQueries({ queryKey: ['orders'] })
+    } catch (error) {
+      console.error('Order submission failed:', error)
+      throw error
     }
   }
 
-  const removeFromCart = (productId: number) => {
-    setCartItems(cartItems.filter((item) => item.product_id !== productId))
-  }
-
-  const updateQuantity = (productId: number, change: number) => {
-    setCartItems(
-      cartItems.map((item) => {
-        if (item.product_id === productId) {
-          const newQuantity = item.quantity + change
-          return newQuantity > 0 ? { ...item, quantity: newQuantity } : item
-        }
-        return item
-      })
-    )
-  }
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (editingOrder) {
-      updateOrder.mutate({ 
-        id: editingOrder.id, 
-        customer_id: parseInt(formData.customer_id),
-        payment_method: formData.payment_method,
-        notes: formData.notes
-      })
-    } else {
-      createOrder.mutate({ ...formData, items: cartItems })
-    }
+  const handleOrderCancel = () => {
+    setShowDialog(false)
+    setEditingOrder(null)
   }
 
   const handleEdit = (order: Order) => {
     setEditingOrder(order)
-    setFormData({
-      customer_id: order.customer.toString(),
-      order_type: order.order_type,
-      payment_method: order.payment_method || "cash",
-      notes: order.notes || ""
-    })
-    setCartItems(order.items?.map(item => ({
-      product_id: item.product,
-      product_name: item.product_name || 'Unknown Product',
-      price: item.unit_price,
-      quantity: item.quantity
-    })) || [])
     setShowDialog(true)
   }
 
@@ -230,8 +130,29 @@ export default function OrdersPage() {
     setShowDetailsDialog(true)
   }
 
-  const calculateTotal = () => {
-    return cartItems.reduce((total, item) => total + parseFloat(item.price) * item.quantity, 0).toFixed(2)
+  const handleStatusChange = async (orderId: number, newStatus: Order["status"]) => {
+    if (!newStatus) return
+    
+    try {
+      await transitionOrderMutation.mutateAsync({ 
+        id: orderId, 
+        status: newStatus 
+      })
+      queryClient.invalidateQueries({ queryKey: ['orders'] })
+    } catch (error) {
+      console.error('Status update failed:', error)
+    }
+  }
+
+  const handleDelete = async (orderId: number) => {
+    if (confirm('Are you sure you want to delete this order?')) {
+      try {
+        await deleteOrderMutation.mutateAsync(orderId)
+        queryClient.invalidateQueries({ queryKey: ['orders'] })
+      } catch (error) {
+        console.error('Order deletion failed:', error)
+      }
+    }
   }
 
   const filteredOrders = orders
@@ -253,12 +174,20 @@ export default function OrdersPage() {
 
   const getStatusVariant = (status: Order["status"]) => {
     switch (status) {
-      case "pending": return "secondary"
-      case "processing": return "default"
-      case "completed": return "default"
-      case "cancelled": return "destructive"
-      default: return "secondary"
+      case "pending": return "secondary" as const
+      case "processing": return "default" as const
+      case "completed": return "default" as const
+      case "cancelled": return "destructive" as const
+      default: return "secondary" as const
     }
+  }
+
+  const formatCurrency = (amount: string | number) => {
+    const numAmount = typeof amount === 'string' ? parseFloat(amount) : amount
+    return new Intl.NumberFormat('vi-VN', {
+      style: 'currency',
+      currency: 'VND'
+    }).format(numAmount)
   }
 
   return (
@@ -268,10 +197,10 @@ export default function OrdersPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Orders</h1>
           <p className="text-muted-foreground">
-            Manage customer orders and track order status
+            Manage customer orders with validated forms and real-time inventory tracking
           </p>
         </div>
-        <Button onClick={() => { resetForm(); setShowDialog(true) }}>
+        <Button onClick={() => setShowDialog(true)}>
           <Plus className="h-4 w-4 mr-2" />
           Create Order
         </Button>
@@ -315,7 +244,9 @@ export default function OrdersPage() {
             <DollarSign className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">₫{totalRevenue.toLocaleString('vi-VN')}</div>
+            <div className="text-2xl font-bold text-green-600">
+              {formatCurrency(totalRevenue)}
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -346,6 +277,17 @@ export default function OrdersPage() {
               <SelectItem value="cancelled">Cancelled</SelectItem>
             </SelectContent>
           </Select>
+          <Select value={typeFilter} onValueChange={setTypeFilter}>
+            <SelectTrigger className="w-40">
+              <SelectValue placeholder="Filter by type" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Types</SelectItem>
+              <SelectItem value="in_store">In-Store</SelectItem>
+              <SelectItem value="online">Online</SelectItem>
+              <SelectItem value="prescription">Prescription</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
@@ -356,9 +298,9 @@ export default function OrdersPage() {
             <TableRow>
               <TableHead>Order #</TableHead>
               <TableHead>Customer</TableHead>
+              <TableHead>Type</TableHead>
               <TableHead>Date</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Payment</TableHead>
               <TableHead>Total</TableHead>
               <TableHead>Actions</TableHead>
             </TableRow>
@@ -367,7 +309,7 @@ export default function OrdersPage() {
             {filteredOrders.map((order) => (
               <TableRow key={order.id}>
                 <TableCell>
-                  <div className="font-medium">#{order.id}</div>
+                  <div className="font-medium">{order.order_number || `#${order.id}`}</div>
                   <div className="text-sm text-muted-foreground">
                     {order.items?.length || 0} item{(order.items?.length || 0) !== 1 ? 's' : ''}
                   </div>
@@ -375,31 +317,45 @@ export default function OrdersPage() {
                 <TableCell>
                   <div>
                     <div className="font-medium">{order.customer_name || 'Unknown Customer'}</div>
-                    <div className="text-sm text-muted-foreground">{customers.find(c => c.id === order.customer)?.email || 'No email'}</div>
+                    <div className="text-sm text-muted-foreground">
+                      {order.customer_role === 'vip_customer' ? 'VIP Customer' : 'Regular Customer'}
+                    </div>
                   </div>
+                </TableCell>
+                <TableCell>
+                  <Badge variant="outline">
+                    {order.order_type === 'in_store' ? 'In-Store' :
+                     order.order_type === 'online' ? 'Online' :
+                     order.order_type === 'prescription' ? 'Prescription' : 
+                     order.order_type}
+                  </Badge>
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-1 text-sm">
                     <Calendar className="h-3 w-3" />
-                    {new Date(order.order_date).toLocaleDateString()}
+                    {order.order_date 
+                      ? new Date(order.order_date).toLocaleDateString('vi-VN')
+                      : 'N/A'
+                    }
                   </div>
-                  <div className="text-xs text-muted-foreground">
-                    {new Date(order.order_date).toLocaleTimeString()}
-                  </div>
+                  {order.order_date && (
+                    <div className="text-xs text-muted-foreground">
+                      {new Date(order.order_date).toLocaleTimeString('vi-VN')}
+                    </div>
+                  )}
                 </TableCell>
                 <TableCell>
                   <Badge variant={getStatusVariant(order.status)}>
                     {getStatusIcon(order.status)}
-                    <span className="ml-1">{order.status.charAt(0).toUpperCase() + order.status.slice(1)}</span>
+                    <span className="ml-1">
+                      {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
+                    </span>
                   </Badge>
                 </TableCell>
                 <TableCell>
-                  <Badge variant="outline">
-                    {order.payment_method ? order.payment_method.charAt(0).toUpperCase() + order.payment_method.slice(1) : 'Unknown'}
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  <div className="font-medium">₫{parseFloat(order.total_amount).toLocaleString('vi-VN')}</div>
+                  <div className="font-medium">
+                    {order.total_amount ? formatCurrency(order.total_amount) : formatCurrency(0)}
+                  </div>
                 </TableCell>
                 <TableCell>
                   <div className="flex gap-2">
@@ -424,7 +380,7 @@ export default function OrdersPage() {
                         <Select
                           value={order.status}
                           onValueChange={(status: Order["status"]) => 
-                            updateOrderStatus.mutate({ id: order.id, status })
+                            handleStatusChange(order.id!, status)
                           }
                         >
                           <SelectTrigger className="w-28 h-8">
@@ -443,7 +399,7 @@ export default function OrdersPage() {
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8"
-                      onClick={() => deleteOrder.mutate(order.id)}
+                      onClick={() => handleDelete(order.id!)}
                     >
                       <Trash2 className="h-3 w-3" />
                     </Button>
@@ -457,178 +413,30 @@ export default function OrdersPage() {
 
       {/* Create/Edit Order Dialog */}
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-[95vw] lg:max-w-7xl max-h-[95vh] overflow-y-auto w-full">
           <DialogHeader>
             <DialogTitle>
               {editingOrder ? 'Edit Order' : 'Create New Order'}
             </DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="customer_id">Customer</Label>
-                <Select 
-                  value={formData.customer_id} 
-                  onValueChange={(value) => setFormData({ ...formData, customer_id: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select customer..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {customersLoading ? (
-                      <SelectItem value="" disabled>Loading customers...</SelectItem>
-                    ) : customers.length > 0 ? (
-                      customers.map((customer) => (
-                        <SelectItem key={customer.id} value={customer.id.toString()}>
-                          {customer.first_name} {customer.last_name} ({customer.role === 'vip_customer' ? 'VIP' : 'Regular'})
-                        </SelectItem>
-                      ))
-                    ) : (
-                      <SelectItem value="" disabled>No customers found</SelectItem>
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="payment_method">Payment Method</Label>
-                <Select 
-                  value={formData.payment_method} 
-                  onValueChange={(value: "cash" | "card" | "insurance") => 
-                    setFormData({ ...formData, payment_method: value })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="cash">Cash</SelectItem>
-                    <SelectItem value="card">Card</SelectItem>
-                    <SelectItem value="insurance">Insurance</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Add Products</Label>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-40 overflow-y-auto border rounded p-2">
-                {productsLoading ? (
-                  <div className="col-span-full text-center py-4 text-muted-foreground">
-                    Loading products...
-                  </div>
-                ) : products.length > 0 ? (
-                  products.map((product) => (
-                    <div key={product.id} className="flex justify-between items-center p-2 border rounded">
-                      <div className="flex-1">
-                        <div className="font-medium">{product.name}</div>
-                        <div className="text-sm text-muted-foreground">
-                          ₫{parseFloat(product.price).toLocaleString('vi-VN')} | Stock: {product.stock}
-                          {product.requires_prescription && " | Rx Required"}
-                        </div>
-                      </div>
-                      <Button 
-                        type="button"
-                        size="sm" 
-                        onClick={() => addToCart(product)}
-                        disabled={product.stock === 0}
-                      >
-                        Add
-                      </Button>
-                    </div>
-                  ))
-                ) : (
-                  <div className="col-span-full text-center py-4 text-muted-foreground">
-                    No products found
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {cartItems.length > 0 && (
-              <div className="space-y-2">
-                <Label>Order Items</Label>
-                <div className="space-y-2 max-h-40 overflow-y-auto border rounded p-2">
-                  {cartItems.map((item) => (
-                    <div key={item.product_id} className="flex justify-between items-center p-2 bg-muted rounded">
-                      <span className="font-medium">{item.product_name}</span>
-                      <div className="flex items-center gap-2">
-                        <Button 
-                          type="button"
-                          size="sm" 
-                          variant="outline" 
-                          onClick={() => updateQuantity(item.product_id, -1)}
-                        >
-                          <Minus className="h-3 w-3" />
-                        </Button>
-                        <span className="w-8 text-center">{item.quantity}</span>
-                        <Button 
-                          type="button"
-                          size="sm" 
-                          variant="outline" 
-                          onClick={() => updateQuantity(item.product_id, 1)}
-                        >
-                          <Plus className="h-3 w-3" />
-                        </Button>
-                        <span className="w-16 text-right">
-                          ₫{(parseFloat(item.price) * item.quantity).toLocaleString('vi-VN')}
-                        </span>
-                        <Button 
-                          type="button"
-                          size="sm" 
-                          variant="destructive" 
-                          onClick={() => removeFromCart(item.product_id)}
-                        >
-                          Remove
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                  <div className="text-right font-bold text-lg border-t pt-2">
-                    Total: ₫{parseFloat(calculateTotal()).toLocaleString('vi-VN')}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <Label htmlFor="notes">Notes</Label>
-              <Textarea
-                id="notes"
-                value={formData.notes}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                rows={3}
-                placeholder="Any special notes about this order..."
-              />
-            </div>
-
-            <div className="flex justify-end gap-2 pt-4">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setShowDialog(false)
-                  setEditingOrder(null)
-                  resetForm()
-                }}
-              >
-                Cancel
-              </Button>
-              <Button 
-                type="submit" 
-                disabled={!formData.customer_id || cartItems.length === 0 || createOrder.isPending || updateOrder.isPending}
-              >
-                {editingOrder ? 'Update' : 'Create'} Order
-              </Button>
-            </div>
-          </form>
+          <OrderForm
+            order={editingOrder || undefined}
+            onSubmit={handleOrderSubmit}
+            onCancel={handleOrderCancel}
+            isSubmitting={createOrderMutation.isPending || updateOrderMutation.isPending}
+            mode={editingOrder ? 'edit' : 'create'}
+            onStatusChange={handleStatusChange}
+          />
         </DialogContent>
       </Dialog>
 
       {/* Order Details Dialog */}
       <Dialog open={showDetailsDialog} onOpenChange={setShowDetailsDialog}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-[95vw] sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Order Details - #{viewingOrder?.id}</DialogTitle>
+            <DialogTitle>
+              Order Details - {viewingOrder?.order_number || `#${viewingOrder?.id}`}
+            </DialogTitle>
           </DialogHeader>
           {viewingOrder && (
             <div className="space-y-4">
@@ -636,16 +444,23 @@ export default function OrdersPage() {
                 <div>
                   <Label className="text-sm font-medium text-muted-foreground">Customer</Label>
                   <div className="font-medium">{viewingOrder.customer_name || 'Unknown Customer'}</div>
-                  <div className="text-sm text-muted-foreground">{customers.find(c => c.id === viewingOrder.customer)?.email || 'No email'}</div>
+                  <div className="text-sm text-muted-foreground">
+                    {viewingOrder.customer_role === 'vip_customer' ? 'VIP Customer' : 'Regular Customer'}
+                  </div>
                 </div>
                 <div>
                   <Label className="text-sm font-medium text-muted-foreground">Order Date</Label>
                   <div className="font-medium">
-                    {new Date(viewingOrder.order_date).toLocaleDateString()}
+                    {viewingOrder.order_date 
+                      ? new Date(viewingOrder.order_date).toLocaleDateString('vi-VN')
+                      : 'N/A'
+                    }
                   </div>
-                  <div className="text-sm text-muted-foreground">
-                    {new Date(viewingOrder.order_date).toLocaleTimeString()}
-                  </div>
+                  {viewingOrder.order_date && (
+                    <div className="text-sm text-muted-foreground">
+                      {new Date(viewingOrder.order_date).toLocaleTimeString('vi-VN')}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -660,30 +475,49 @@ export default function OrdersPage() {
                   </Badge>
                 </div>
                 <div>
-                  <Label className="text-sm font-medium text-muted-foreground">Payment Method</Label>
+                  <Label className="text-sm font-medium text-muted-foreground">Order Type</Label>
                   <Badge variant="outline" className="mt-1">
-                    {viewingOrder.payment_method ? viewingOrder.payment_method.charAt(0).toUpperCase() + viewingOrder.payment_method.slice(1) : 'Unknown'}
+                    {viewingOrder.order_type === 'in_store' ? 'In-Store' :
+                     viewingOrder.order_type === 'online' ? 'Online' :
+                     viewingOrder.order_type === 'prescription' ? 'Prescription' :
+                     viewingOrder.order_type}
                   </Badge>
                 </div>
               </div>
+
+              {viewingOrder.order_type === 'online' && viewingOrder.delivery_address && (
+                <div>
+                  <Label className="text-sm font-medium text-muted-foreground">Delivery Address</Label>
+                  <div className="mt-1 p-2 bg-muted rounded text-sm">
+                    {viewingOrder.delivery_address}
+                    {viewingOrder.delivery_instructions && (
+                      <div className="mt-1 text-muted-foreground">
+                        Instructions: {viewingOrder.delivery_instructions}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div>
                 <Label className="text-sm font-medium text-muted-foreground">Order Items</Label>
                 <div className="mt-2 space-y-2">
                   {viewingOrder.items?.map((item) => (
-                    <div key={item.id} className="flex justify-between items-center p-2 border rounded">
+                    <div key={item.id || item.product} className="flex justify-between items-center p-2 border rounded">
                       <div>
                         <div className="font-medium">{item.product_name || 'Unknown Product'}</div>
                         <div className="text-sm text-muted-foreground">
-                          ₫{parseFloat(item.unit_price).toLocaleString('vi-VN')} × {item.quantity}
+                          {formatCurrency(item.unit_price || '0')} × {item.quantity}
                         </div>
                       </div>
-                      <div className="font-medium">₫{(parseFloat(item.unit_price) * item.quantity).toLocaleString('vi-VN')}</div>
+                      <div className="font-medium">
+                        {formatCurrency(item.total_price || (parseFloat(item.unit_price || '0') * item.quantity))}
+                      </div>
                     </div>
                   ))}
                   <div className="flex justify-between items-center p-2 bg-muted rounded font-bold">
                     <span>Total</span>
-                    <span>₫{parseFloat(viewingOrder.total_amount).toLocaleString('vi-VN')}</span>
+                    <span>{formatCurrency(viewingOrder.total_amount || '0')}</span>
                   </div>
                 </div>
               </div>
@@ -701,7 +535,7 @@ export default function OrdersPage() {
         </DialogContent>
       </Dialog>
 
-      {filteredOrders.length === 0 && (
+      {filteredOrders.length === 0 && !ordersLoading && (
         <div className="text-center py-12">
           <ShoppingCart className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
           <h3 className="text-lg font-semibold mb-2">No orders found</h3>
@@ -709,7 +543,7 @@ export default function OrdersPage() {
             {searchTerm || statusFilter !== "all" ? "Try adjusting your search terms" : "Get started by creating your first order"}
           </p>
           {!searchTerm && statusFilter === "all" && (
-            <Button onClick={() => { resetForm(); setShowDialog(true) }}>
+            <Button onClick={() => setShowDialog(true)}>
               <Plus className="h-4 w-4 mr-2" />
               Create Order
             </Button>

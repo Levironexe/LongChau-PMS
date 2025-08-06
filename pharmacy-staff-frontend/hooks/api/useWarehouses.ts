@@ -105,7 +105,7 @@ const warehouseService = {
   // Warehouse Inventory CRUD
   async getWarehouseInventory(warehouseId?: number) {
     const params = new URLSearchParams()
-    if (warehouseId) params.append('warehouse', warehouseId.toString())
+    if (warehouseId) params.append('warehouse_id', warehouseId.toString())
     
     const response = await fetch(`${API_BASE_URL}/warehouse-inventory/?${params}`)
     if (!response.ok) throw new ApiError('Failed to fetch warehouse inventory', response.status)
@@ -336,7 +336,11 @@ export const useApproveTransfer = () => {
     mutationFn: ({ transferId, approvedById }: { transferId: number, approvedById: number }) => 
       warehouseService.approveTransfer(transferId, approvedById),
     onSuccess: () => {
+      // Invalidate transfers (status changes from pending to approved)
       queryClient.invalidateQueries({ queryKey: warehouseQueryKeys.transfers() })
+      
+      // Invalidate warehouse lists (pending transfer counts change)
+      queryClient.invalidateQueries({ queryKey: warehouseQueryKeys.lists() })
     },
   })
 }
@@ -349,8 +353,23 @@ export const useCompleteTransfer = () => {
     mutationFn: ({ transferId, receivingUserId }: { transferId: number, receivingUserId: number }) => 
       warehouseService.completeTransfer(transferId, receivingUserId),
     onSuccess: () => {
+      // Core transfer-related data
       queryClient.invalidateQueries({ queryKey: warehouseQueryKeys.transfers() })
       queryClient.invalidateQueries({ queryKey: warehouseQueryKeys.inventory() })
+      
+      // Warehouse lists (total stock changes after transfer)
+      queryClient.invalidateQueries({ queryKey: warehouseQueryKeys.lists() })
+      
+      // Individual warehouse details (stock levels change)
+      queryClient.invalidateQueries({ queryKey: warehouseQueryKeys.details() })
+      
+      // Branch inventory (destination branch receives stock)
+      queryClient.invalidateQueries({ queryKey: ['branches'] })
+      queryClient.invalidateQueries({ queryKey: ['branch-inventory'] })
+      queryClient.invalidateQueries({ queryKey: ['inventory'] })
+      
+      // Product-related queries that might show stock info
+      queryClient.invalidateQueries({ queryKey: ['products'] })
     },
   })
 }

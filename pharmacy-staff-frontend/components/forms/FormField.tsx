@@ -145,8 +145,19 @@ export function SelectField<
 }: SelectFieldProps<TFieldValues, TName>) {
   // Filter out duplicate values to prevent React key warnings and selection issues
   const uniqueOptions = React.useMemo(() => {
+    // Handle undefined, null, or non-array options
+    if (!options || !Array.isArray(options) || options.length === 0) {
+      return []
+    }
+    
     const seen = new Set()
     return options.filter(option => {
+      // Handle malformed options
+      if (!option || typeof option !== 'object' || !option.value) {
+        console.warn('Malformed option removed:', option)
+        return false
+      }
+      
       if (seen.has(option.value)) {
         console.warn(`Duplicate option value removed: ${option.value} (${option.label})`)
         return false
@@ -298,6 +309,69 @@ export function ArrayField<
         )
       }}
     />
+  )
+}
+
+// Number Field Component (standalone input without form context)
+interface NumberFieldProps extends React.InputHTMLAttributes<HTMLInputElement> {
+  label?: string
+  name: string
+  className?: string
+}
+
+export function NumberField({
+  label,
+  name,
+  className,
+  ...props
+}: NumberFieldProps) {
+  return (
+    <div className={className}>
+      {label && (
+        <label htmlFor={name} className="text-sm font-medium">
+          {label}
+        </label>
+      )}
+      <Input
+        id={name}
+        type="number"
+        {...props}
+      />
+    </div>
+  )
+}
+
+// Form Section Component
+interface FormSectionProps {
+  title: string
+  description?: string
+  icon?: React.ReactNode
+  children: React.ReactNode
+  className?: string
+}
+
+export function FormSection({
+  title,
+  description,
+  icon,
+  children,
+  className = "",
+}: FormSectionProps) {
+  return (
+    <div className={`space-y-4 ${className}`}>
+      <div className="flex items-center gap-2 pb-2 border-b">
+        {icon}
+        <div>
+          <h3 className="text-lg font-semibold">{title}</h3>
+          {description && (
+            <p className="text-sm text-muted-foreground">{description}</p>
+          )}
+        </div>
+      </div>
+      <div className="space-y-4">
+        {children}
+      </div>
+    </div>
   )
 }
 

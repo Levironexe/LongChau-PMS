@@ -45,6 +45,7 @@ import {
   RefreshCw
 } from "lucide-react"
 import { api } from "@/lib/api"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { 
   useInventoryRecords, 
   useInventoryStats, 
@@ -53,6 +54,12 @@ import {
   useBranchInventoryStats
 } from "@/hooks/api/useInventory"
 import { useBranches } from "@/hooks/api/useBranches"
+import { 
+  expiredMedications, 
+  expiredMedicationInventory,
+  isProductExpired,
+  mockExpiredMedicationWarning
+} from "@/lib/mock-data"
 import type { InventoryRecord, Branch } from "@/lib/types"
 
 // Using real API types - InventoryRecord and Branch from types.ts
@@ -74,6 +81,8 @@ export default function InventoryPage() {
   const [requestingItem, setRequestingItem] = useState<InventoryRecord | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [stockFilter, setStockFilter] = useState<string>("all")
+  const [showExpiredWarnings, setShowExpiredWarnings] = useState(false)
+  const [expiredProductsFound, setExpiredProductsFound] = useState<{id: number, name: string, expiry_date: string, days_expired: number}[]>([])
   const [formData, setFormData] = useState({
     product_id: "",
     branch_id: "",
@@ -152,8 +161,17 @@ export default function InventoryPage() {
     branchQueryData: branchInventoryQuery.data?.length || 0,
     allQueryStatus: allInventoryQuery.status,
     branchQueryStatus: branchInventoryQuery.status,
-    inventoryFirstItem: inventory[0] // First item for debugging
+    inventoryFirstItem: inventory[0], // First item for debugging
+    
+    // NEW: Detailed API response debugging
+    rawAllInventoryData: allInventoryQuery.data,
+    rawBranchInventoryData: branchInventoryQuery.data,
+    allDataSample: allInventoryQuery.data?.slice(0, 3), // First 3 items from all data
+    branchDataSample: branchInventoryQuery.data?.slice(0, 3), // First 3 items from branch data
   })
+  
+  // NEW: Log when inventory data changes
+  console.log('Raw inventory data (first 5 items):', inventory.slice(0, 5))
   const { data: globalLowStockItems = [] } = useLowStockRecords()
   const globalInventoryStats = useInventoryStats()
   const branchInventoryStats = useBranchInventoryStats(branchId)
@@ -171,6 +189,54 @@ export default function InventoryPage() {
       document.title = `Inventory | Long Chau PMS`
     }
   }, [selectedBranch, selectedBranchName])
+
+  // BUSINESS RULE VALIDATION: Check for expired medications
+  useEffect(() => {
+    const checkForExpiredMedications = () => {
+      const today = new Date()
+      const expiredProducts: {id: number, name: string, expiry_date: string, days_expired: number}[] = []
+
+      // Check mock expired medications
+      expiredMedications.forEach(med => {
+        if (med.expiry_date) {
+          const expiryDate = new Date(med.expiry_date)
+          if (expiryDate < today) {
+            const daysExpired = Math.floor((today.getTime() - expiryDate.getTime()) / (1000 * 60 * 60 * 24))
+            expiredProducts.push({
+              id: med.id,
+              name: med.name,
+              expiry_date: med.expiry_date,
+              days_expired: daysExpired
+            })
+          }
+        }
+      })
+
+      // Check real inventory for expiry dates
+      inventory.forEach(item => {
+        if (item.expiry_date) {
+          const expiryDate = new Date(item.expiry_date)
+          if (expiryDate < today) {
+            const daysExpired = Math.floor((today.getTime() - expiryDate.getTime()) / (1000 * 60 * 60 * 24))
+            const existingExpired = expiredProducts.find(p => p.id === item.product)
+            if (!existingExpired) {
+              expiredProducts.push({
+                id: item.product || 0,
+                name: item.product_name || 'Unknown Product',
+                expiry_date: item.expiry_date,
+                days_expired: daysExpired
+              })
+            }
+          }
+        }
+      })
+
+      setExpiredProductsFound(expiredProducts)
+      setShowExpiredWarnings(expiredProducts.length > 0)
+    }
+
+    checkForExpiredMedications()
+  }, [inventory])
 
   // TODO: Replace with useProducts() hook when available
   const { data: products = [] } = useQuery({
@@ -521,6 +587,42 @@ export default function InventoryPage() {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* EXPIRED MEDICATION WARNING */}
+      {showExpiredWarnings && expiredProductsFound.length > 0 && (
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription className="font-medium">
+            Expired Medications Detected ({expiredProductsFound.length} items)
+          </AlertDescription>
+          <AlertDescription>
+            <div className="mt-2 space-y-2">
+              <div className="font-medium">⚠️ These medications have expired and must be removed from inventory:</div>
+              <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3 mt-3">
+                {expiredProductsFound.slice(0, 6).map((product) => (
+                  <div key={product.id} className="p-3 bg-red-100 rounded border border-red-300">
+                    <div className="font-medium text-sm text-red-900">{product.name}</div>
+                    <div className="text-xs text-red-700">
+                      Expired: {new Date(product.expiry_date).toLocaleDateString()}
+                    </div>
+                    <div className="text-xs text-red-600 font-semibold">
+                      {product.days_expired} day{product.days_expired !== 1 ? 's' : ''} past expiry
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {expiredProductsFound.length > 6 && (
+                <div className="text-sm text-red-800 mt-2">
+                  And {expiredProductsFound.length - 6} more expired items...
+                </div>
+              )}
+              <div className="mt-3 text-sm text-red-800 bg-red-200 p-2 rounded">
+                <strong>Business Rule Violation:</strong> Expired medications cannot be sold and must be disposed of according to pharmacy regulations.
+              </div>
+            </div>
+          </AlertDescription>
+        </Alert>
       )}
 
       {/* Search and Filters */}

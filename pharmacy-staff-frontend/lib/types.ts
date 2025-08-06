@@ -89,6 +89,9 @@ export interface User {
   employee_id?: string
   customer_id?: string
   branch?: number
+  // API filtering fields
+  is_staff_member?: boolean
+  is_customer_member?: boolean
 }
 
 // Legacy Customer interface for backward compatibility
@@ -103,37 +106,93 @@ export interface Customer {
 
 export interface Order {
   id: number
-  customer: number // Customer ID
+  customer: number | null // Customer ID, null for unregistered customers
   customer_name?: string // From backend
+  customer_role?: string // From backend
   total_amount: string // Decimal as string
   status: "pending" | "processing" | "completed" | "cancelled"
   order_type: "prescription" | "in_store" | "online"
   order_date: string
+  order_number?: string // From backend
   items?: OrderItem[]
   available_transitions?: string[]
   payment_method?: "cash" | "card" | "insurance"
   notes?: string
+  
+  // Staff information
+  branch?: number
+  branch_name?: string
+  created_by?: number
+  created_by_name?: string
+  validated_by?: number
+  validated_by_name?: string
+  served_by?: number
+  served_by_name?: string
+  
+  // Prescription-specific fields  
+  prescription?: number
+  validation_date?: string
+  
+  // Online order fields
+  delivery_address?: string
+  delivery_instructions?: string
+  
+  // API response fields
+  current_state_info?: {
+    current_status: string
+    allowed_actions: string[]
+  }
+  calculated_total?: number
+  processing_strategy?: {
+    strategy_type: string
+    order_type: string
+    requires_validation: boolean
+    requires_delivery: boolean
+  }
+  inventory_impact?: {
+    created_low_stock_items: number
+    low_stock_details: any[]
+  }
+  
+  // Unregistered customer fields
+  unregistered_customer_name?: string
+  unregistered_customer_phone?: string
+  unregistered_customer_email?: string
+  unregistered_customer_address?: string
 }
 
 export interface OrderItem {
-  id: number
-  order: number
+  id?: number
+  order?: number
   product: number
   product_name?: string
+  product_code?: string // From API response
   quantity: number
   unit_price: string
+  total_price?: string // From API response
+  created_at?: string // From API response
 }
 
 export interface CreateOrderRequest {
-  customer: number // Backend uses 'customer' not 'customer_id'
+  customer: number | null // For registered customers, null for unregistered
   order_type: "prescription" | "in_store" | "online"
   payment_method?: "cash" | "card" | "insurance"
   items: {
-    product: number // Backend uses 'product' not 'product_id'
+    product: number
     quantity: number
   }[]
   notes?: string
-  branch?: number // May be required by backend
+  branch?: number
+  created_by?: number // Staff member creating the order
+  prescription?: number // Required for prescription orders
+  validated_by?: number // Pharmacist for prescription orders
+  delivery_address?: string // Required for online orders
+  delivery_instructions?: string
+  // Unregistered customer fields
+  unregistered_customer_name?: string
+  unregistered_customer_phone?: string  
+  unregistered_customer_email?: string
+  unregistered_customer_address?: string
 }
 
 // New interfaces for API changes

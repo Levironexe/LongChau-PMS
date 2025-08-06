@@ -288,7 +288,10 @@ describe('InventoryService', () => {
 
         const result = await inventoryService.getRecordsByBranch(1)
 
-        expect(result).toEqual(mockResponse.data.results)
+        expect(result).toEqual([
+          { id: 1, branch: 1, product_name: 'Medicine 1' },
+          { id: 3, branch: 1, product_name: 'Medicine 3' }
+        ])
       })
 
       it('should handle invalid branch ID', async () => {

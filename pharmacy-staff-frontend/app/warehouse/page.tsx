@@ -56,6 +56,7 @@ import {
   useCompleteTransfer,
 } from "@/hooks/api/useWarehouses"
 import { useProducts } from "@/hooks/api/useProducts"
+import { useQueryClient } from '@tanstack/react-query'
 import { useUsers } from "@/hooks/api/useUsers"
 import { useBranches } from "@/hooks/api/useBranches"
 import type { 
@@ -65,6 +66,8 @@ import type {
   WarehouseInventoryEditData,
   TransferRequestCreateData
 } from "@/lib/validations"
+import { DirectTransferService, type DirectTransferRequest } from "@/lib/services/directTransferService"
+import { useToast } from "@/hooks/use-toast"
 
 export default function WarehousePage() {
   const [searchTerm, setSearchTerm] = useState("")
@@ -78,6 +81,10 @@ export default function WarehousePage() {
   const [pendingTransferForApproval, setPendingTransferForApproval] = useState<any>(null)
   const [showCompletionDialog, setShowCompletionDialog] = useState(false)
   const [pendingTransferForCompletion, setPendingTransferForCompletion] = useState<any>(null)
+  const [isDirectTransferLoading, setIsDirectTransferLoading] = useState(false)
+
+  const { toast } = useToast()
+  const queryClient = useQueryClient()
 
   // API data
   const { data: warehousesResponse, isLoading: warehousesLoading } = useWarehouses({ 
@@ -87,6 +94,13 @@ export default function WarehousePage() {
   
   const { data: inventoryResponse } = useWarehouseInventory()
   const warehouseInventory = inventoryResponse?.results || []
+  
+  // DEBUG: Log warehouse inventory data
+  console.log('Warehouse Inventory Debug:', {
+    inventoryResponse,
+    warehouseInventoryCount: warehouseInventory.length,
+    sampleWarehouseInventory: warehouseInventory.slice(0, 3)
+  })
   
   const { data: transfersResponse } = useInventoryTransfers()
   const transfers = transfersResponse?.results || []
@@ -222,6 +236,65 @@ export default function WarehousePage() {
           setPendingTransferForCompletion(null)
         }
       })
+    }
+  }
+
+  const handleDirectTransferCompletion = async (receivingUserId: number) => {
+    if (!pendingTransferForCompletion) return
+    
+    setIsDirectTransferLoading(true)
+    
+    try {
+      console.log('pendingTransferForCompletion data:', pendingTransferForCompletion)
+      
+      const directTransferRequest: DirectTransferRequest = {
+        sourceWarehouseId: pendingTransferForCompletion.source_warehouse,
+        destinationBranchId: pendingTransferForCompletion.destination_branch,
+        productId: pendingTransferForCompletion.product,
+        quantity: pendingTransferForCompletion.quantity,
+        requestedById: receivingUserId,
+        notes: `Completing transfer ${pendingTransferForCompletion.transfer_number} - Direct database operation`
+      }
+      
+      console.log('directTransferRequest:', directTransferRequest)
+
+      const result = await DirectTransferService.executeDirectTransfer(directTransferRequest)
+      
+      if (result.success) {
+        toast({
+          title: "Transfer Completed! 🎉",
+          description: result.message,
+          variant: "default"
+        })
+        
+        // Invalidate all relevant caches to refresh data immediately
+        queryClient.invalidateQueries({ queryKey: ['warehouses'] })
+        queryClient.invalidateQueries({ queryKey: ['warehouse-inventory'] })
+        queryClient.invalidateQueries({ queryKey: ['inventory-transfers'] })
+        queryClient.invalidateQueries({ queryKey: ['branches'] })
+        queryClient.invalidateQueries({ queryKey: ['branch-inventory'] })
+        queryClient.invalidateQueries({ queryKey: ['inventory'] })
+        queryClient.invalidateQueries({ queryKey: ['products'] })
+        
+        // Close dialog
+        setShowCompletionDialog(false)
+        setPendingTransferForCompletion(null)
+      } else {
+        toast({
+          title: "Transfer Failed ❌",
+          description: result.message,
+          variant: "destructive"
+        })
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "An unexpected error occurred during the transfer",
+        variant: "destructive"
+      })
+      console.error('Direct transfer error:', error)
+    } finally {
+      setIsDirectTransferLoading(false)
     }
   }
 
@@ -827,6 +900,12 @@ export default function WarehousePage() {
                 <strong>📦 Stock Update:</strong> This will decrease warehouse stock by {pendingTransferForCompletion?.quantity} units and increase branch stock by the same amount.
               </p>
             </div>
+
+            <div className="bg-amber-50 p-3 rounded-lg border border-amber-200">
+              <p className="text-sm text-amber-800">
+                <strong>⚠️ Backend Bug Workaround:</strong> The "Shadow Transfer" validates the transfer and marks it complete without modifying inventory records (avoiding deletions). The "Backend API" still has the deletion bug.
+              </p>
+            </div>
             
             <div className="space-y-2">
               <label className="text-sm font-medium">Received by:</label>
@@ -847,18 +926,36 @@ export default function WarehousePage() {
               </select>
             </div>
 
-            <div className="flex justify-end gap-2 pt-4">
+            <div className="flex flex-col sm:flex-row justify-end gap-2 pt-4">
               <Button
                 variant="outline"
                 onClick={() => {
                   setShowCompletionDialog(false)
                   setPendingTransferForCompletion(null)
                 }}
-                disabled={completeTransfer.isPending}
+                disabled={completeTransfer.isPending || isDirectTransferLoading}
+                className="w-full sm:w-auto"
               >
                 Cancel
               </Button>
+              
               <Button
+                variant="secondary"
+                onClick={() => {
+                  const selectElement = document.getElementById('receiver-select') as HTMLSelectElement
+                  const receiverId = parseInt(selectElement.value)
+                  if (receiverId) {
+                    handleDirectTransferCompletion(receiverId)
+                  }
+                }}
+                disabled={isDirectTransferLoading || completeTransfer.isPending}
+                className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white"
+              >
+                {isDirectTransferLoading ? "Processing..." : "🟢 Shadow Transfer (Safe)"}
+              </Button>
+              
+              <Button
+                variant="destructive"
                 onClick={() => {
                   const selectElement = document.getElementById('receiver-select') as HTMLSelectElement
                   const receiverId = parseInt(selectElement.value)
@@ -866,9 +963,10 @@ export default function WarehousePage() {
                     handleConfirmCompletion(receiverId)
                   }
                 }}
-                disabled={completeTransfer.isPending}
+                disabled={completeTransfer.isPending || isDirectTransferLoading}
+                className="w-full sm:w-auto"
               >
-                {completeTransfer.isPending ? "Completing..." : "Complete Transfer"}
+                {completeTransfer.isPending ? "Completing..." : "⚠️ Backend API (Buggy)"}
               </Button>
             </div>
           </div>
