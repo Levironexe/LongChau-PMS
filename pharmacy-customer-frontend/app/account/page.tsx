@@ -7,53 +7,92 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import { Crown, User, Package } from "lucide-react"
+import { Crown, User, Package, Calendar, MapPin } from "lucide-react"
 import { api } from "@/lib/api"
+import { useAuth } from "@/contexts/AuthContext"
+import { useToast } from "@/hooks/use-toast"
 
 export default function AccountPage() {
+  const { user } = useAuth()
+  const { toast } = useToast()
   const [isEditing, setIsEditing] = useState(false)
   const [formData, setFormData] = useState({
     name: "",
     email: "",
     phone: "",
+    dateOfBirth: "",
+    address: "",
   })
-
-  // Simulated current customer ID (in real app, get from auth)
-  const customerId = 1
 
   const queryClient = useQueryClient()
 
-  const { data: customer } = useQuery({
-    queryKey: ["customer", customerId],
-    queryFn: () => api.get(`/customers/${customerId}/`).then((res) => res.data),
-  })
-
-  // Update form data when customer data is loaded
+  // Update form data when user data is available
   React.useEffect(() => {
-    if (customer) {
+    if (user) {
+      // Get complete user data from localStorage (includes registration data)
+      const registeredUsers = JSON.parse(localStorage.getItem('registeredUsers') || '[]');
+      const completeUser = registeredUsers.find((u: any) => u.id === user?.id);
+      const userData = completeUser || user;
+      
       setFormData({
-        name: customer.name || "",
-        email: customer.email || "",
-        phone: customer.phone || "",
+        name: userData?.name || "",
+        email: userData?.email || "",
+        phone: userData?.phone || "",
+        dateOfBirth: userData?.dateOfBirth || "",
+        address: userData?.address || "",
       })
     }
-  }, [customer])
+  }, [user])
 
   const { data: orders = [] } = useQuery({
-    queryKey: ["orders", customerId],
-    queryFn: () => api.get("/orders/").then((res) => res.data.filter((order: any) => order.customer === customerId)),
-  })
-
-  const updateProfile = useMutation({
-    mutationFn: (data: any) => api.put(`/customers/${customerId}/`, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["customer", customerId] })
-      setIsEditing(false)
-    },
+    queryKey: ["orders", user?.id],
+    queryFn: () => api.get("/orders/").then((res) => res.data.filter((order: any) => order.customer === user?.id)),
+    enabled: !!user?.id,
   })
 
   const handleSaveProfile = () => {
-    updateProfile.mutate(formData)
+    try {
+      if (!user) return;
+
+      // Update the user data in localStorage
+      const registeredUsers = JSON.parse(localStorage.getItem('registeredUsers') || '[]');
+      const userIndex = registeredUsers.findIndex((u: any) => u.id === user.id);
+      
+      if (userIndex !== -1) {
+        registeredUsers[userIndex] = {
+          ...registeredUsers[userIndex],
+          ...formData,
+        };
+        localStorage.setItem('registeredUsers', JSON.stringify(registeredUsers));
+      }
+
+      // Also update the current user session
+      const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+      const updatedUser = { ...currentUser, ...formData };
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+
+      setIsEditing(false);
+      toast({
+        title: "Profile updated successfully!",
+        description: "Your profile information has been saved.",
+        variant: "success",
+      });
+    } catch (error) {
+      toast({
+        title: "Failed to update profile",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    }
+  }
+
+  if (!user) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 py-8 text-center">
+        <h1 className="text-3xl font-bold mb-8">Please log in to view your account</h1>
+        <Button onClick={() => window.location.href = '/login'}>Go to Login</Button>
+      </div>
+    )
   }
 
   return (
@@ -72,7 +111,7 @@ export default function AccountPage() {
               <CardTitle className="flex items-center gap-2">
                 <User className="h-5 w-5" />
                 Profile Information
-                {customer?.customer_type === "vip" && (
+                {user?.customer_type === "vip" && (
                   <Badge variant="secondary" className="ml-2">
                     <Crown className="h-3 w-3 mr-1" />
                     VIP Customer
@@ -106,6 +145,34 @@ export default function AccountPage() {
                   onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                   disabled={!isEditing}
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Date of Birth</label>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    type="date"
+                    value={formData.dateOfBirth}
+                    onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })}
+                    disabled={!isEditing}
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Address</label>
+                <div className="relative">
+                  <MapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    value={formData.address}
+                    onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                    disabled={!isEditing}
+                    placeholder="Enter your address"
+                    className="pl-10"
+                  />
+                </div>
               </div>
 
               <div className="flex gap-2">
