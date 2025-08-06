@@ -40,3 +40,39 @@ export interface CartItem {
   product: Product
   quantity: number
 }
+
+export interface PrescriptionUpload {
+  id: string
+  patientName: string
+  dateOfBirth: string
+  doctorName: string
+  doctorLicense: string
+  issueDate: string
+  files: UploadedFile[]
+  status: "pending" | "under_review" | "approved" | "rejected"
+  submittedAt: string
+  reviewNotes?: string
+  reviewedAt?: string
+  reviewedBy?: string
+}
+
+export interface UploadedFile {
+  id: string
+  name: string
+  size: number
+  type: string
+  url: string
+  uploadedAt: string
+  status: "uploading" | "uploaded" | "failed"
+  progress?: number
+  error?: string
+}
+
+export interface PrescriptionFormData {
+  patientName: string
+  dateOfBirth: string
+  doctorName: string
+  doctorLicense: string
+  issueDate: string
+  notes?: string
+}

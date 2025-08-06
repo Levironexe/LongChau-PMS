@@ -2,16 +2,19 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Search, ShoppingCart, User, Menu, X, Heart } from "lucide-react";
+import { Search, ShoppingCart, User, Menu, X, Heart, LogOut, Settings, Crown } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Badge } from "./ui/badge";
 import { useCart } from "../hooks/useCart";
+import { useAuth } from "../contexts/AuthContext";
 
 export function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [showUserMenu, setShowUserMenu] = useState(false);
   const { getCartItemCount } = useCart();
+  const { user, isAuthenticated, logout } = useAuth();
 
   const cartItemCount = getCartItemCount();
 
@@ -36,13 +39,19 @@ export function Header() {
           {/* Logo */}
           <div className="flex-shrink-0">
             <Link href="/" className="flex items-center space-x-2">
-              <div className="w-10 h-10 bg-gradient-to-r from-blue-600 to-blue-400 rounded-full flex items-center justify-center">
-                <span className="text-white font-bold text-lg">LC</span>
-              </div>
-              <div className="hidden sm:flex flex-col">
-                <span className="text-xl font-bold text-gray-900">Long Chau</span>
-                <span className="text-xs text-gray-500 -mt-1">Trusted Pharmacy</span>
-              </div>
+              <img 
+                src="/Longchau-removebg-preview.png" 
+                alt="Long Chau Pharmacy" 
+                className="h-24 w-auto object-contain"
+                onError={(e) => {
+                  console.error('Logo failed to load');
+                  // Fallback to text logo if image fails
+                  const fallback = document.createElement('div');
+                  fallback.className = 'w-10 h-10 bg-gradient-to-r from-blue-600 to-blue-400 rounded-full flex items-center justify-center';
+                  fallback.innerHTML = '<span class="text-white font-bold text-lg">LC</span>';
+                  e.currentTarget.parentNode?.replaceChild(fallback, e.currentTarget);
+                }}
+              />
             </Link>
           </div>
 
@@ -74,9 +83,121 @@ export function Header() {
             </Link>
             
             {/* Account */}
-            <Link href="/account" className="p-2 text-gray-700 hover:text-blue-600 transition-colors">
-              <User className="h-6 w-6" />
-            </Link>
+            {isAuthenticated ? (
+              <div className="relative">
+                <button
+                  onClick={() => setShowUserMenu(!showUserMenu)}
+                  className="flex items-center gap-2 p-2 text-gray-700 hover:text-blue-600 transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    {user?.avatar ? (
+                      <img
+                        src={user.avatar}
+                        alt={user.name}
+                        className="w-6 h-6 rounded-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center">
+                        <span className="text-white text-xs font-medium">
+                          {user?.name?.charAt(0).toUpperCase()}
+                        </span>
+                      </div>
+                    )}
+                    {user?.customer_type === 'vip' && (
+                      <Crown className="h-3 w-3 text-yellow-500" />
+                    )}
+                  </div>
+                </button>
+                
+                {/* User Dropdown Menu */}
+                {showUserMenu && (
+                  <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
+                    <div className="px-4 py-3 border-b border-gray-200">
+                      <div className="flex items-center gap-3">
+                        {user?.avatar ? (
+                          <img
+                            src={user.avatar}
+                            alt={user.name}
+                            className="w-10 h-10 rounded-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center">
+                            <span className="text-white font-medium">
+                              {user?.name?.charAt(0).toUpperCase()}
+                            </span>
+                          </div>
+                        )}
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium text-gray-900">{user?.name}</p>
+                            {user?.customer_type === 'vip' && (
+                              <Badge variant="secondary" className="text-xs">
+                                <Crown className="h-3 w-3 mr-1" />
+                                VIP
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-sm text-gray-600">{user?.email}</p>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="py-1">
+                      <Link
+                        href="/account"
+                        className="flex items-center gap-3 px-4 py-2 text-gray-700 hover:bg-gray-100"
+                        onClick={() => setShowUserMenu(false)}
+                      >
+                        <User className="h-4 w-4" />
+                        My Account
+                      </Link>
+                      <Link
+                        href="/orders"
+                        className="flex items-center gap-3 px-4 py-2 text-gray-700 hover:bg-gray-100"
+                        onClick={() => setShowUserMenu(false)}
+                      >
+                        <ShoppingCart className="h-4 w-4" />
+                        My Orders
+                      </Link>
+                      <Link
+                        href="/favorites"
+                        className="flex items-center gap-3 px-4 py-2 text-gray-700 hover:bg-gray-100"
+                        onClick={() => setShowUserMenu(false)}
+                      >
+                        <Heart className="h-4 w-4" />
+                        Favorites
+                      </Link>
+                    </div>
+                    
+                    <div className="border-t border-gray-200 py-1">
+                      <button
+                        onClick={() => {
+                          logout();
+                          setShowUserMenu(false);
+                        }}
+                        className="flex items-center gap-3 px-4 py-2 text-gray-700 hover:bg-gray-100 w-full text-left"
+                      >
+                        <LogOut className="h-4 w-4" />
+                        Sign Out
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Link href="/login">
+                  <Button variant="ghost" size="sm" className="text-gray-700 hover:text-blue-600">
+                    Sign In
+                  </Button>
+                </Link>
+                <Link href="/register">
+                  <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">
+                    Sign Up
+                  </Button>
+                </Link>
+              </div>
+            )}
             
             {/* Shopping Cart */}
             <Link href="/cart" className="p-2 text-gray-700 hover:text-blue-600 relative transition-colors">
