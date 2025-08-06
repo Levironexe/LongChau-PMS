@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -45,7 +45,7 @@ interface OrderDetails {
   }>;
 }
 
-export default function CheckoutSuccessPage() {
+function CheckoutSuccessPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { clearCart } = useCart();
@@ -53,33 +53,7 @@ export default function CheckoutSuccessPage() {
   const [orderDetails, setOrderDetails] = useState<OrderDetails | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    // Get order details from localStorage or URL params
-    const storedOrder = localStorage.getItem('lastOrder');
-    const orderId = searchParams.get('orderId');
-    
-    if (storedOrder) {
-      const order = JSON.parse(storedOrder);
-      setOrderDetails(order);
-      
-      // Clear cart after successful order
-      clearCart();
-      
-      // Clean up stored order
-      localStorage.removeItem('lastOrder');
-    } else if (orderId) {
-      // If no stored order but orderId exists, create mock order
-      generateMockOrder(orderId);
-    } else {
-      // No order data, redirect to home
-      router.push('/');
-      return;
-    }
-    
-    setIsLoading(false);
-  }, [searchParams, router, clearCart]);
-
-  const generateMockOrder = (orderId: string) => {
+  const generateMockOrder = useCallback((orderId: string) => {
     const mockOrder: OrderDetails = {
       orderId,
       orderDate: new Date().toISOString(),
@@ -121,7 +95,33 @@ export default function CheckoutSuccessPage() {
       ]
     };
     setOrderDetails(mockOrder);
-  };
+  }, [user]);
+
+  useEffect(() => {
+    // Get order details from localStorage or URL params
+    const storedOrder = localStorage.getItem('lastOrder');
+    const orderId = searchParams.get('orderId');
+    
+    if (storedOrder) {
+      const order = JSON.parse(storedOrder);
+      setOrderDetails(order);
+      
+      // Clear cart after successful order
+      clearCart();
+      
+      // Clean up stored order
+      localStorage.removeItem('lastOrder');
+    } else if (orderId) {
+      // If no stored order but orderId exists, create mock order
+      generateMockOrder(orderId);
+    } else {
+      // No order data, redirect to home
+      router.push('/');
+      return;
+    }
+    
+    setIsLoading(false);
+  }, [searchParams, router, clearCart, generateMockOrder]);
 
   const formatCurrency = (amount: number) => {
     return amount.toLocaleString('vi-VN') + '₫';
@@ -384,7 +384,7 @@ export default function CheckoutSuccessPage() {
                   <Package className="h-5 w-5 text-blue-600" />
                 </div>
                 <h4 className="font-medium mb-1">Order Processing</h4>
-                <p className="text-gray-600">We'll prepare your order and verify prescription items if applicable.</p>
+                <p className="text-gray-600">We&apos;ll prepare your order and verify prescription items if applicable.</p>
               </div>
               
               <div className="text-center">
@@ -407,5 +407,13 @@ export default function CheckoutSuccessPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+export default function CheckoutSuccessPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <CheckoutSuccessPageContent />
+    </Suspense>
   );
 }

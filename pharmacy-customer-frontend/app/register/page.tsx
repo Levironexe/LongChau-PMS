@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ErrorPopup } from '@/components/ui/error-popup';
 import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/hooks/use-toast';
 import { 
   User, 
   Mail, 
@@ -27,6 +28,7 @@ import {
 export default function RegisterPage() {
   const router = useRouter();
   const { register, isLoading } = useAuth();
+  const { toast } = useToast();
   
   const [formData, setFormData] = useState({
     name: '',
@@ -126,7 +128,12 @@ export default function RegisterPage() {
     setIsSubmitting(true);
     try {
       await register(formData);
-      router.push('/?welcome=true');
+      toast({
+        title: "Registration successful! 🎉",
+        description: "Welcome to Long Chau Pharmacy! You've been automatically logged in.",
+        variant: "success",
+      });
+      router.push('/');
     } catch (error) {
       setErrors({ 
         submit: error instanceof Error ? error.message : 'Registration failed. Please try again.' 
